@@ -1,0 +1,8 @@
+export enum TransactionRequestAction {
+  START_BROADCAST = 1,
+  BROADCAST_SUCCEEDED = 2,
+  BROADCAST_FAILED = 3,
+  MARK_MINED_SUCCESS = 4,
+  MARK_MINED_FAILED = 5,
+  GIVE_UP = 6,
+}

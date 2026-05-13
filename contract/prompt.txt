@@ -1,0 +1,7 @@
+A simple contract, to which users should delegate
+
+This has an method that can be called by admin, with a list of operations (EIP712 typed structure data chainId/to/value/data) which are signed by the delegator user
+
+(All of list is signed by user in a single signature, not each item of the list being signed)
+
+Transfer of user to treasury must be done separately (as always first item of the list of always last item of the list), other transactions should be sent atomic

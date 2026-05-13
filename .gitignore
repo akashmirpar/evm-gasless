@@ -1,0 +1,44 @@
+# OS / editors
+.DS_Store
+Thumbs.db
+*.swp
+*.swo
+.idea/
+.vscode/
+
+# Logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# Env / secrets
+.env
+.env.local
+.env.*.local
+*.pem
+*.key
+
+# ── backend (NestJS / Node) ─────────────────────────────
+backend/node_modules/
+backend/dist/
+backend/coverage/
+backend/.env
+backend/.env.*
+!backend/.env.example
+backend/*.tsbuildinfo
+
+# ── contract (Foundry) ──────────────────────────────────
+contract/cache/
+contract/out/
+contract/broadcast/
+contract/.env
+contract/.env.*
+!contract/.env.example
+# forge installs deps into contract/lib as git submodules; if you'd
+# rather vendor them, delete the line below.
+contract/lib/
+
+# Claude
+.claude/settings.local.json

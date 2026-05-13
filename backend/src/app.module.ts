@@ -1,0 +1,55 @@
+import KeyvRedis from '@keyv/redis';
+import { CacheModule } from '@nestjs/cache-manager';
+import { Module, ValidationPipe } from '@nestjs/common';
+import { APP_FILTER, APP_INTERCEPTOR, APP_PIPE } from '@nestjs/core';
+import { EventEmitterModule } from '@nestjs/event-emitter';
+import { ScheduleModule } from '@nestjs/schedule';
+import { TypeOrmModule } from '@nestjs/typeorm';
+
+import { AllExceptionsFilter } from './common/filters/all_exceptions.filter';
+import { ResponseInterceptor } from './common/interceptors/response.interceptor';
+import { RequestContextInterceptor } from './core/context/context.interceptor';
+import { ChainConfigModule } from './core/chain_config/chain_config.module';
+import { buildDataSourceOptions } from './core/database/data-source';
+import { HealthModule } from './core/health/health.module';
+import { RpcModule } from './core/rpc/rpc.module';
+import { GaslessModule } from './modules/gasless/gasless.module';
+import { RangoModule } from './modules/rango/rango.module';
+import { RelayerModule } from './modules/relayer/relayer.module';
+
+@Module({
+  imports: [
+    TypeOrmModule.forRootAsync({ useFactory: () => buildDataSourceOptions() }),
+    CacheModule.registerAsync({
+      isGlobal: true,
+      useFactory: () => {
+        const host = process.env.REDIS_HOST ?? '127.0.0.1';
+        const port = Number(process.env.REDIS_PORT ?? 6379);
+        const password = process.env.REDIS_PASSWORD;
+        const ttlSeconds = Number(process.env.REDIS_DEFAULT_TTL_SECONDS ?? 300);
+        const auth = password ? `:${encodeURIComponent(password)}@` : '';
+        const url = `redis://${auth}${host}:${port}`;
+        const keyvRedis = new KeyvRedis({
+          url,
+          socket: { connectTimeout: 1_500, reconnectStrategy: (retries: number) => Math.min(retries * 200, 2_000) },
+        });
+        return { stores: [keyvRedis], ttl: ttlSeconds * 1_000 };
+      },
+    }),
+    ScheduleModule.forRoot(),
+    EventEmitterModule.forRoot(),
+    ChainConfigModule,
+    RpcModule,
+    HealthModule,
+    RangoModule,
+    RelayerModule,
+    GaslessModule,
+  ],
+  providers: [
+    { provide: APP_PIPE, useFactory: () => new ValidationPipe({ whitelist: true, transform: true }) },
+    { provide: APP_FILTER, useClass: AllExceptionsFilter },
+    { provide: APP_INTERCEPTOR, useClass: RequestContextInterceptor },
+    { provide: APP_INTERCEPTOR, useClass: ResponseInterceptor },
+  ],
+})
+export class AppModule {}
