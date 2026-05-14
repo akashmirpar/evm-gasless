@@ -1,4 +1,5 @@
-import { IsInt, IsString, Matches } from 'class-validator';
+import { Type } from 'class-transformer';
+import { IsInt, IsString, Matches, ValidateNested } from 'class-validator';
 
 const HEX = /^0x[a-fA-F0-9]+$/;
 
@@ -23,6 +24,8 @@ export class SubmitTransactionRequestDto {
   @Matches(HEX)
   signature!: string;
 
+  @ValidateNested()
+  @Type(() => AuthorizationTupleDto)
   authorization!: AuthorizationTupleDto;
 }
 

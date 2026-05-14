@@ -144,11 +144,20 @@ See [.env.example](.env.example). The most important groups:
 
 ```sh
 npm install
-docker compose up -d postgres redis    # or use your own
+
+# 1. Create the shared external network once (pgadmin / other tools join the same).
+docker network create back_net_${DEV_NAME:-local} 2>/dev/null || true
+
+# 2. Bring up postgres + redis from docker-compose.dev.yml.
+docker compose -f docker-compose.dev.yml up -d
+
+# 3. Apply migrations and start the app.
 npm run build && npm run migration:run
 npm run start:dev
 # swagger at http://localhost:3100/swagger
 ```
+
+`docker-compose.dev.yml` uses `${DEV_NAME}` to namespace containers/volumes so multiple devs (or multiple branches) can share one host. It attaches both services to the **external** network `back_net_${DEV_NAME}`, so pgadmin (or any other tool running in another compose project) can reach the database by joining the same network.
 
 ## Testing
 

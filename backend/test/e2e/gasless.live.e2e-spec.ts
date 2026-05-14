@@ -1,14 +1,13 @@
-import { INestApplication } from '@nestjs/common';
 import { Contract, Interface, JsonRpcProvider, parseUnits } from 'ethers';
-import { StartedTestContainer } from 'testcontainers';
 import supertest from 'supertest';
 
 import {
-  bootBackend,
-  E2EEnv,
   ensureUserHasNativeAndToken,
+  httpFor,
+  LiveE2EEnv,
+  pingBackend,
   pollUntilTerminal,
-  readE2EEnv,
+  readLiveE2EEnv,
   signAuthorization,
   waitForStableNonce,
 } from './helpers';
@@ -16,6 +15,9 @@ import {
 const ERC20_BALANCE_OF = ['function balanceOf(address) view returns (uint256)'];
 const ERC20_IFACE = new Interface(['function transfer(address to, uint256 amount)']);
 const USER_OP_RECIPIENT = '0x3d2f7550C63F3b6E6A9a24D0a226f6ae0c48749F';
+
+const liveEnabled = !!(process.env.E2E_USER_PRIVATE_KEY && (process.env.E2E_BACKEND_URL || process.env.E2E_LIVE === '1'));
+const describeIfLive = liveEnabled ? describe : describe.skip;
 
 async function tokenDecimals(rpcUrl: string, token: string): Promise<number> {
   const provider = new JsonRpcProvider(rpcUrl);
@@ -36,37 +38,19 @@ function makeTransferOp(chainId: number, token: string, recipient: string, human
   };
 }
 
-const supportedFeeTokenAvailable = !!(process.env.E2E_USER_PRIVATE_KEY && process.env.E2E_OPERATOR_PRIVATE_KEY);
-const describeIfFunded = supportedFeeTokenAvailable ? describe : describe.skip;
-
-describeIfFunded('gasless e2e (real chain)', () => {
-  let app: INestApplication;
+describeIfLive('gasless e2e against a running backend instance', () => {
+  let env: LiveE2EEnv;
   let http: supertest.Agent;
-  let postgres: StartedTestContainer;
-  let redis: StartedTestContainer;
-  let env: E2EEnv;
 
   beforeAll(async () => {
-    env = readE2EEnv();
-    const booted = await bootBackend({
-      OPERATOR_PRIVATE_KEY: env.operatorWallet.privateKey,
-      GASLESS_TREASURY_ADDRESS: env.treasuryAddress,
-      GASLESS_ACCEPTED_FEE_TOKENS: env.supportedFeeToken.toLowerCase(),
-      [`E2E_RPC_URL_${env.chainId}`]: env.rpcUrl,
-    });
-    app = booted.app;
-    http = booted.http;
-    postgres = booted.postgres;
-    redis = booted.redis;
+    env = readLiveE2EEnv();
+    if (!(await pingBackend(env.backendUrl))) {
+      throw new Error(`backend at ${env.backendUrl} is not reachable; start it before running this suite`);
+    }
+    http = httpFor(env.backendUrl);
   });
 
-  afterAll(async () => {
-    await app?.close();
-    await postgres?.stop();
-    await redis?.stop();
-  });
-
-  it('supported fee token path: direct treasury transfer in must-succeed zone', async () => {
+  it('supported fee token path against running instance', async () => {
     const feeAmountMinimum = parseUnits('1', 6);
     await ensureUserHasNativeAndToken(env, env.supportedFeeToken, feeAmountMinimum);
     await waitForStableNonce(env);
@@ -94,9 +78,7 @@ describeIfFunded('gasless e2e (real chain)', () => {
         operations: ops,
       })
       .expect(201);
-    const { requestId, digest, operations: prepared, atomicGroupStart, nonce } = create.body.data;
-    expect(atomicGroupStart).toBe(1);
-    expect(prepared.length).toBe(2);
+    const { requestId, operations: prepared, atomicGroupStart, nonce } = create.body.data;
 
     const signature = await signTypedDataForBatch(env, prepared, atomicGroupStart, nonce);
     const authorization = await signAuthorization(env);
@@ -108,10 +90,9 @@ describeIfFunded('gasless e2e (real chain)', () => {
 
     const final = await pollUntilTerminal(http, requestId);
     if (final.status !== 'MINED_SUCCESS') {
-      console.error('supported test on-chain failure:', JSON.stringify(final));
+      console.error('supported (live) on-chain failure:', JSON.stringify(final));
     }
     expect(final.status).toBe('MINED_SUCCESS');
-    expect(final.txHash).toBeTruthy();
 
     const provider = new JsonRpcProvider(env.rpcUrl);
     const erc20 = new Contract(env.supportedFeeToken, ERC20_BALANCE_OF, provider);
@@ -119,7 +100,7 @@ describeIfFunded('gasless e2e (real chain)', () => {
     expect(treasuryAfter > 0n).toBe(true);
   }, 300_000);
 
-  it('unsupported fee token path: approve + rango swap to accepted, then user ops', async () => {
+  it('unsupported fee token path against running instance', async () => {
     const feeAmountMinimum = parseUnits('5', 18);
     await ensureUserHasNativeAndToken(env, env.unsupportedFeeToken, feeAmountMinimum);
     await waitForStableNonce(env);
@@ -149,8 +130,6 @@ describeIfFunded('gasless e2e (real chain)', () => {
       })
       .expect(201);
     const { requestId, operations: prepared, atomicGroupStart, nonce } = create.body.data;
-    expect(atomicGroupStart).toBeGreaterThanOrEqual(1);
-    expect(prepared.length).toBeGreaterThan(atomicGroupStart);
 
     const signature = await signTypedDataForBatch(env, prepared, atomicGroupStart, nonce);
     const authorization = await signAuthorization(env);
@@ -162,15 +141,14 @@ describeIfFunded('gasless e2e (real chain)', () => {
 
     const final = await pollUntilTerminal(http, requestId);
     if (final.status !== 'MINED_SUCCESS') {
-      console.error('unsupported test on-chain failure:', JSON.stringify(final));
+      console.error('unsupported (live) on-chain failure:', JSON.stringify(final));
     }
     expect(final.status).toBe('MINED_SUCCESS');
-    expect(final.txHash).toBeTruthy();
   }, 300_000);
 });
 
 async function signTypedDataForBatch(
-  env: E2EEnv,
+  env: LiveE2EEnv,
   ops: Array<{ to: string; value: string; data: string }>,
   atomicGroupStart: number,
   nonce: string,

@@ -10,7 +10,7 @@ import { AllExceptionsFilter } from './common/filters/all_exceptions.filter';
 import { ResponseInterceptor } from './common/interceptors/response.interceptor';
 import { RequestContextInterceptor } from './core/context/context.interceptor';
 import { ChainConfigModule } from './core/chain_config/chain_config.module';
-import { buildDataSourceOptions } from './core/database/data-source';
+import { AppDataSource, buildDataSourceOptions } from './core/database/data-source';
 import { HealthModule } from './core/health/health.module';
 import { RpcModule } from './core/rpc/rpc.module';
 import { GaslessModule } from './modules/gasless/gasless.module';
@@ -19,7 +19,15 @@ import { RelayerModule } from './modules/relayer/relayer.module';
 
 @Module({
   imports: [
-    TypeOrmModule.forRootAsync({ useFactory: () => buildDataSourceOptions() }),
+    TypeOrmModule.forRootAsync({
+      useFactory: () => buildDataSourceOptions(),
+      dataSourceFactory: async () => {
+        if (!AppDataSource.isInitialized) {
+          await AppDataSource.initialize();
+        }
+        return AppDataSource;
+      },
+    }),
     CacheModule.registerAsync({
       isGlobal: true,
       useFactory: () => {

@@ -1,6 +1,6 @@
 import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import { readFileSync, existsSync } from 'fs';
-import { join } from 'path';
+import { dirname, join, parse as parsePath } from 'path';
 
 import { PlutonException } from '../../common/errors';
 import { ChainConfigErrors } from './chain_config.errors';
@@ -16,8 +16,9 @@ export class ChainConfigService implements OnModuleInit {
   }
 
   load(): void {
-    const chainsJsonPath = process.env.CHAINS_JSON_PATH ?? join(__dirname, '..', '..', '..', '..', 'chains', 'chains.json');
-    const deployedJsonPath = process.env.DEPLOYED_JSON_PATH ?? join(__dirname, '..', '..', '..', '..', 'chains', 'deployed.json');
+    const chainsJsonPath = (process.env.CHAINS_JSON_PATH?.trim() || ChainConfigService.findChainsJson(__dirname));
+    const deployedJsonPath = (process.env.DEPLOYED_JSON_PATH?.trim() || join(dirname(chainsJsonPath), 'deployed.json'));
+    this.logger.log(`reading chains config from ${chainsJsonPath}; deployed from ${deployedJsonPath}`);
 
     if (!existsSync(chainsJsonPath)) {
       throw new Error(`chains.json not found at ${chainsJsonPath}`);
@@ -46,7 +47,11 @@ export class ChainConfigService implements OnModuleInit {
         .split(',')
         .map((s) => s.trim())
         .filter((s) => s.length > 0);
-      const rpcUrls = [...override, ...c.defaultRpcs];
+      // If the operator configured private/paid RPCs, use ONLY those — public
+      // defaults from chains.json are skipped to avoid hitting their rate
+      // limits or pulling in unreliable endpoints. Defaults apply only when
+      // the env override is empty.
+      const rpcUrls = override.length > 0 ? override : c.defaultRpcs;
 
       const tokens = Object.entries(c.tokens).map(([symbol, t]) => ({
         symbol,
@@ -55,7 +60,11 @@ export class ChainConfigService implements OnModuleInit {
       }));
 
       const chainAcceptedTokens = tokens
-        .filter((t) => acceptedSet.has(`${c.chainId}:${t.symbol.toLowerCase()}`) || acceptedSet.has(t.address.toLowerCase()))
+        .filter((t) =>
+          acceptedSet.has(`${c.chainId}:${t.symbol.toLowerCase()}`) ||
+          acceptedSet.has(`${c.chainId}:${t.address.toLowerCase()}`) ||
+          acceptedSet.has(t.address.toLowerCase()),
+        )
         .map((t) => t.address);
 
       out.set(c.chainId, {
@@ -107,5 +116,18 @@ export class ChainConfigService implements OnModuleInit {
   isFeeTokenAccepted(chainId: number, address: string): boolean {
     const c = this.get(chainId);
     return c.acceptedFeeTokenAddresses.includes(address.toLowerCase());
+  }
+
+  private static findChainsJson(startDir: string): string {
+    const { root } = parsePath(startDir);
+    let dir = startDir;
+    while (true) {
+      const candidate = join(dir, 'chains', 'chains.json');
+      if (existsSync(candidate)) return candidate;
+      if (dir === root) {
+        throw new Error(`could not find chains/chains.json walking up from ${startDir}; set CHAINS_JSON_PATH`);
+      }
+      dir = dirname(dir);
+    }
   }
 }

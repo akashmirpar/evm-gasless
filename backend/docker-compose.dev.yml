@@ -1,0 +1,96 @@
+name: gasless-${DEV_NAME}
+
+services:
+  gasless-postgres:
+    image: ${POSTGRES_IMAGE:-postgres:16-alpine}
+    container_name: gasless-postgres-${DEV_NAME}
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    cap_add:
+      - CHOWN
+      - DAC_OVERRIDE
+      - FOWNER
+      - SETGID
+      - SETUID
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${DATABASE_POSTGRES_USERNAME}
+      POSTGRES_PASSWORD: ${DATABASE_POSTGRES_PASSWORD}
+      POSTGRES_DB: ${DATABASE_POSTGRES_DATABASE}
+    ports:
+      - "${DATABASE_POSTGRES_PORT}:5432"
+    networks:
+      - default
+      - gasless_net
+      - back_net
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DATABASE_POSTGRES_USERNAME} -d ${DATABASE_POSTGRES_DATABASE}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    deploy:
+      resources:
+        limits:
+          memory: 4G
+          cpus: '2.0'
+        reservations:
+          memory: 2G
+          cpus: '1.0'
+
+  gasless-redis:
+    image: ${REDIS_IMAGE:-redis:7-alpine}
+    container_name: gasless-redis-${DEV_NAME}
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    cap_add:
+      - CHOWN
+      - DAC_OVERRIDE
+      - FOWNER
+      - SETGID
+      - SETUID
+    restart: unless-stopped
+    environment:
+      - REDIS_PASSWORD=${REDIS_PASSWORD}
+    ports:
+      - "${REDIS_PORT}:6379"
+    networks:
+      - default
+      - gasless_net
+      - back_net
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+          cpus: '0.5'
+        reservations:
+          memory: 256M
+          cpus: '0.25'
+
+volumes:
+  postgres_data:
+    name: postgres_gasless_data_${DEV_NAME}
+  redis_data:
+    name: redis_gasless_data_${DEV_NAME}
+
+networks:
+  default:
+    name: gasless_${DEV_NAME}
+    external: true
+  gasless_net:
+    external: true
+  back_net:
+    external: true
+    

@@ -71,7 +71,21 @@ export class RelayerJob implements OnModuleInit {
         await this.doBroadcast(row);
         return;
       }
-      if (row.status === TransactionRequestStatus.BROADCASTING || row.status === TransactionRequestStatus.BROADCASTED) {
+      if (row.status === TransactionRequestStatus.BROADCASTING) {
+        // The previous tick crashed between PENDING -> BROADCASTING and the
+        // success/failure transition. If we already have a tx hash, finish the
+        // pending success transition; otherwise rewind to PENDING so the next
+        // tick re-broadcasts.
+        if (row.txHash) {
+          await transitionStatus(ctx, TransactionRequestEntity, row.id, TransactionRequestAction.BROADCAST_SUCCEEDED, transactionRequestFsm);
+        } else {
+          await transitionStatus(ctx, TransactionRequestEntity, row.id, TransactionRequestAction.BROADCAST_FAILED, transactionRequestFsm);
+        }
+        await ctx.tx.commit();
+        await ctx.tx.done();
+        return;
+      }
+      if (row.status === TransactionRequestStatus.BROADCASTED) {
         await ctx.tx.done();
         await this.doCheckReceipt(row);
         return;
@@ -137,6 +151,8 @@ export class RelayerJob implements OnModuleInit {
 
   private async recordFailure(row: TransactionRequestEntity, err: unknown): Promise<void> {
     const reason = err instanceof Error ? err.message : JSON.stringify(err);
+    const stack = err instanceof Error ? err.stack : undefined;
+    this.logger.warn(`recordFailure id=${row.id} fromStatus=${row.status} retryTimes=${row.retryTimes} txHash=${row.txHash ?? 'none'} reason=${reason}${stack ? ` stack=${stack.split('\n').slice(0, 3).join(' | ')}` : ''}`);
     const ctx = await startSystemTransaction('relayer-fail-mode');
     try {
       const retryTimes = row.retryTimes + 1;

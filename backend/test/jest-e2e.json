@@ -3,7 +3,7 @@
   "rootDir": "..",
   "testEnvironment": "node",
   "testRegex": "test/e2e/.*\\.e2e-spec\\.ts$",
-  "setupFiles": ["reflect-metadata"],
+  "setupFiles": ["reflect-metadata", "dotenv/config"],
   "transform": { "^.+\\.(t|j)s$": "ts-jest" },
   "moduleNameMapper": { "^src/(.*)$": "<rootDir>/src/$1" },
   "testTimeout": 600000

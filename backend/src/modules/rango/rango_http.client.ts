@@ -29,10 +29,12 @@ interface RangoBasicQuoteResponse {
 interface RangoBasicSwapResponse extends RangoBasicQuoteResponse {
   tx?: {
     type: string;
-    from: string;
-    to: string;
-    txData: string;
-    value: string;
+    from?: string;
+    // Rango Basic API uses txTo/txData for the EVM call, distinct from
+    // approveTo/approveData which describe the (optional) prerequisite approve.
+    txTo?: string;
+    txData?: string;
+    value?: string;
     approveTo?: string;
     approveData?: string;
   };
@@ -81,9 +83,12 @@ export class RangoHttpClient extends RangoClient {
     if (data.tx.type !== 'EVM') {
       throw PlutonException(RangoErrors.InvalidResponse, data);
     }
+    if (!data.tx.txTo || !data.tx.txData) {
+      throw PlutonException(RangoErrors.InvalidResponse, data);
+    }
     const evm: RangoEvmCall = {
-      from: data.tx.from,
-      to: data.tx.to,
+      from: data.tx.from ?? '',
+      to: data.tx.txTo,
       data: data.tx.txData,
       value: data.tx.value ?? '0',
       approveTo: data.tx.approveTo ?? null,
