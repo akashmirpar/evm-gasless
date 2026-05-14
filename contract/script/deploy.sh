@@ -67,8 +67,10 @@ for row in "${chain_rows[@]}"; do
 
   if [[ -n "$filter_names" ]]; then
     found=0
+    name_lower="${name,,}"
     for f in $filter_names; do
-      if [[ "$f" == "$name" ]]; then found=1; break; fi
+      f_lower="${f,,}"
+      if [[ "$f_lower" == "$name_lower" ]]; then found=1; break; fi
     done
     if [[ "$found" -eq 0 ]]; then continue; fi
   fi
@@ -85,10 +87,17 @@ for row in "${chain_rows[@]}"; do
   echo "============================================================"
 
   cd "$contract_dir"
+  verify_args=()
+  if [[ -n "${ETHERSCAN_API_KEY:-}" ]]; then
+    verify_args=(--verify --etherscan-api-key "$ETHERSCAN_API_KEY")
+  else
+    echo "ETHERSCAN_API_KEY not set; deploying without source verification."
+  fi
   output=$(forge script script/Deploy.s.sol:DeployGaslessDelegate \
     --rpc-url "$rpc_url" \
     --broadcast \
     --slow \
+    "${verify_args[@]}" \
     -vvv 2>&1)
   echo "$output"
 

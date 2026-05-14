@@ -1,5 +1,5 @@
-import { Injectable, Logger } from '@nestjs/common';
-import { Contract, JsonRpcProvider } from 'ethers';
+import { Injectable } from '@nestjs/common';
+import { Contract } from 'ethers';
 
 import { ChainConfigService } from '../../../core/chain_config/chain_config.service';
 import { RpcService } from '../../../core/rpc/rpc.service';
@@ -8,8 +8,6 @@ const DELEGATE_NONCE_ABI = ['function nonce() view returns (uint256)'];
 
 @Injectable()
 export class DelegateStateService {
-  private readonly logger = new Logger(DelegateStateService.name);
-
   constructor(
     private readonly chainConfig: ChainConfigService,
     private readonly rpc: RpcService,
@@ -53,9 +51,6 @@ export class DelegateStateService {
       const contract = new Contract(userAddress, DELEGATE_NONCE_ABI, provider);
       const n = await contract.nonce();
       return BigInt(n);
-    } catch (err) {
-      this.logger.debug(`readNonce via ${rpcUrl} failed: ${(err as Error)?.message ?? err}`);
-      throw err;
     } finally {
       provider.destroy();
     }

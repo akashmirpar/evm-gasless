@@ -1,4 +1,4 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable } from '@nestjs/common';
 import { JsonRpcProvider, Network } from 'ethers';
 
 import { PlutonException } from '../../common/errors';
@@ -7,8 +7,6 @@ import { ChainConfigService } from '../chain_config/chain_config.service';
 
 @Injectable()
 export class RpcService {
-  private readonly logger = new Logger(RpcService.name);
-
   constructor(private readonly chainConfig: ChainConfigService) {}
 
   providerFor(chainId: number, rpcUrl: string): JsonRpcProvider {
@@ -26,15 +24,14 @@ export class RpcService {
         service: 'Rpc',
       });
     }
-    const errors: Array<{ url: string; err: unknown }> = [];
+    const errors: unknown[] = [];
     for (const url of cfg.rpcUrls) {
       const provider = this.providerFor(chainId, url);
       try {
         const out = await op(provider, url);
         return out;
       } catch (err) {
-        errors.push({ url, err });
-        this.logger.warn(`rpc ${url} failed: ${(err as Error)?.message ?? err}`);
+        errors.push(err);
         provider.destroy();
       }
     }

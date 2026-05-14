@@ -69,7 +69,7 @@ export class EvmExecutorService {
       });
 
       const tx = await provider.broadcastTransaction(signedTx);
-      this.logger.log(`broadcast id=${req.id} chain=${req.chainId} hash=${tx.hash} via=${url}`);
+      this.logger.log(`broadcast id=${req.id} chain=${req.chainId} hash=${tx.hash}`);
       return { txHash: tx.hash, rpcUrl: url };
     }).catch((err) => {
       throw PlutonException(RelayerErrors.BroadcastFailed, err, 'system');
