@@ -1,10 +1,17 @@
 # Architecture
 
+The system supports two networks today, with structurally similar API shape but very different underlying primitives:
+
+- **EVM** (BSC, Base, Arbitrum) — uses EIP-7702 to delegate the user's EOA to a `GaslessDelegate` Solidity contract; the user signs an EIP-712 batch; the operator submits a type-4 transaction.
+- **Solana** — uses Solana's native multi-sig: the operator is the transaction's fee payer (covers SOL); the user co-signs as authority over their own token accounts. No delegation contract.
+
+Most of this doc is written EVM-first because that's the more involved path. The Solana-specific bits are flagged in the relevant sections, and [solana.md](solana.md) is the dedicated Solana reference.
+
 ## What the system does in one paragraph
 
 A user wants to execute arbitrary EVM operations from their own EOA but doesn't want to pay native gas. They have some ERC-20 (say USDT) they'd rather pay the fee with. They (a) sign an **EIP-7702 authorization** delegating their EOA to the `GaslessDelegate` contract, and (b) sign an **EIP-712 batch** that includes both the fee payment (to a treasury, optionally via a Rango swap if the fee token isn't directly accepted) and their actual intent ops. An operator picks up the signed batch over HTTP, broadcasts a type-4 transaction (the user's EOA running `GaslessDelegate.executeBatch`), and pays the gas. The treasury receives the fee in the accepted token. The user got their ops executed without holding native gas tokens.
 
-## Components
+## Components (EVM)
 
 ```
  ┌──────────────────┐     ┌─────────────────────┐     ┌──────────────────────┐
@@ -104,3 +111,44 @@ The signature is a bearer token until the nonce is consumed: anyone holding the 
 | Redis TTL elapsed before submit | `POST /:id/submit` returns `GASLESS_REQUEST_EXPIRED` | Client must restart from `POST /transactions`. |
 
 See [error-codes.md](error-codes.md) for the full code registry.
+
+## Solana — what changes
+
+Solana's transaction model already has a native multi-signer primitive, so EIP-7702 isn't needed and there's no delegate contract on chain. The high-level structure is the same — estimate → create → user signs → submit → poll — but the implementation differs in three important ways.
+
+### No delegation, two signers instead
+
+| | EVM | Solana |
+|-|-----|--------|
+| **User's role in the broadcast tx** | User's EOA *is* the `from`, via EIP-7702 delegation. Operator is just the tx sender (pays gas). | User co-signs as the *authority* over their own token accounts. Operator is the `feePayer` and the sole gas payer. |
+| **Signatures the user provides** | EIP-712 batch signature + EIP-7702 authorization tuple | Single ed25519 signature over the message bytes |
+| **What the backend signs** | Type-4 envelope (`from = operator`, `to = user EOA`, includes auth list) | Same `VersionedTransaction`, signed in the feePayer slot |
+| **Where the user's nonce lives** | EOA storage at `GaslessDelegate.nonce()` | None — Solana uses recent blockhash as the freshness token |
+
+### No must-succeed/atomic split
+
+Solana transactions are atomic by nature — any instruction failure rolls back the whole tx, including the fee transfer. So the EVM split (must-succeed zone + atomic-group zone) has no Solana equivalent: if the user's intent instructions fail, the operator's broadcast gas is wasted and the user is not charged. There's no "operator gets paid even when the intent fails" semantic on Solana.
+
+This is a real economic difference. If you're integrating both networks, expect a higher failure-cost on Solana from the operator's POV — guarding against bad inputs via `simulateTransaction` before charging the user is the typical mitigation, and the backend does this for sizing the compute-unit limit anyway.
+
+### Different freshness model
+
+EVM relies on `GaslessDelegate.nonce()`. Solana relies on a `recentBlockhash` baked into the `MessageV0`. Each blockhash is valid for ~150 slots (~60 seconds). The backend reads the latest blockhash during `POST /gasless/solana/transactions` and bakes it into the message; the user must submit + the relayer must broadcast within that window. If the request sits in Redis until the blockhash expires, broadcast will fail with `BlockhashNotFound`.
+
+So the Redis TTL effectively *also* needs to be inside the blockhash validity window — much tighter than EVM where a stale nonce just means re-quote. Practical limit: 30-45s between `POST /transactions` and `POST /:id/submit` on Solana.
+
+### Fee pricing — same Rango client
+
+Solana uses the same `RangoClient.quote()` to convert SOL → user's fee token. Rango wraps Jupiter on Solana, so the quote is a real on-chain swap quote, not a cross-table lookup. The flow is identical to EVM:
+
+1. Estimate the SOL cost of the user's instructions via `simulateTransaction` (sizes the compute unit limit).
+2. `gasUnits × priorityFee + baseFee` = SOL cost in lamports, plus the markup.
+3. `rango.quote({ from: SOL, to: feeToken, amount: lamports })` → fee in the user's token's smallest unit.
+
+Falls back to a hardcoded `SOLANA_SOL_USD_PRICE × SOLANA_FEE_TOKEN_USD_PRICE` cross only if Rango is unreachable.
+
+### Persistence
+
+Solana requests live in their own `solana_transaction_request` table, with a parallel FSM (`PENDING → BROADCASTING → BROADCASTED → MINED_SUCCESS|MINED_FAILED|FAILED_PERMANENT`). The relayer poller (`SolanaRelayerJob`) is a sibling of the EVM poller — same shape, separate cron registration. The two pollers never race because they read different tables and the operator's Solana keypair and EVM key are different artifacts.
+
+See [solana.md](solana.md) for the API shapes, env vars, and an end-to-end integration sample.
