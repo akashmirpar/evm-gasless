@@ -74,6 +74,48 @@
         }
       },
       "envRpcVar": "ARBITRUM_RPC_URLS"
+    },
+    {
+      "chainId": -100,
+      "name": "solana",
+      "displayName": "Solana",
+      "nativeSymbol": "SOL",
+      "nativeDecimals": 9,
+      "networkType": "SOLANA",
+      "rangoChainName": "SOLANA",
+      "defaultRpcs": [
+        "https://api.mainnet-beta.solana.com"
+      ],
+      "tokens": {
+        "USDC": {
+          "address": "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
+          "decimals": 6
+        },
+        "USDT": {
+          "address": "Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB",
+          "decimals": 6
+        }
+      },
+      "envRpcVar": "SOLANA_RPC_URLS"
+    },
+    {
+      "chainId": -102,
+      "name": "solana-devnet",
+      "displayName": "Solana Devnet",
+      "nativeSymbol": "SOL",
+      "nativeDecimals": 9,
+      "networkType": "SOLANA",
+      "rangoChainName": "SOLANA_DEVNET",
+      "defaultRpcs": [
+        "https://api.devnet.solana.com"
+      ],
+      "tokens": {
+        "USDC": {
+          "address": "4zMMC9srt5Ri5X14GAgXhaHii3GnPAEERYPJgZJDncDU",
+          "decimals": 6
+        }
+      },
+      "envRpcVar": "SOLANA_DEVNET_RPC_URLS"
     }
   ]
 }

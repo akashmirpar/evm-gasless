@@ -14,8 +14,10 @@ import { AppDataSource, buildDataSourceOptions } from './core/database/data-sour
 import { HealthModule } from './core/health/health.module';
 import { RpcModule } from './core/rpc/rpc.module';
 import { GaslessModule } from './modules/gasless/gasless.module';
+import { SolanaGaslessModule } from './modules/gasless-solana/solana_gasless.module';
 import { RangoModule } from './modules/rango/rango.module';
 import { RelayerModule } from './modules/relayer/relayer.module';
+import { RelayerSolanaModule } from './modules/relayer-solana/relayer-solana.module';
 
 @Module({
   imports: [
@@ -52,6 +54,8 @@ import { RelayerModule } from './modules/relayer/relayer.module';
     RangoModule,
     RelayerModule,
     GaslessModule,
+    SolanaGaslessModule,
+    RelayerSolanaModule,
   ],
   providers: [
     { provide: APP_PIPE, useFactory: () => new ValidationPipe({ whitelist: true, transform: true }) },

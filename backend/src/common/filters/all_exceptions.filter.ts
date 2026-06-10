@@ -28,16 +28,24 @@ export class AllExceptionsFilter implements ExceptionFilter {
 
     const { status, body } = this.format(exception);
 
-    this.logger.error(
-      JSON.stringify({
-        traceId,
-        method: request.method,
-        path: request.url,
-        status,
-        code: body.code,
-        message: this.summarize(exception),
-      }),
-    );
+    const logPayload = JSON.stringify({
+      traceId,
+      method: request.method,
+      path: request.url,
+      status,
+      code: body.code,
+      message: this.summarize(exception),
+    });
+    if (status >= 500) {
+      this.logger.error(logPayload);
+    } else if (status === 404) {
+      // 404s on an internet-exposed host are dominated by scanner traffic
+      // (`/.env`, `/.git/config`, `/wp/v2/users/`, etc.). Keep them at debug
+      // so real signal stays visible; flip to verbose if you need them.
+      this.logger.debug(logPayload);
+    } else {
+      this.logger.warn(logPayload);
+    }
 
     response.status(status).json({ success: false, error: body });
   }

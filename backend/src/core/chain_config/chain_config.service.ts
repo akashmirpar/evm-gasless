@@ -3,6 +3,7 @@ import { readFileSync, existsSync } from 'fs';
 import { dirname, join, parse as parsePath } from 'path';
 
 import { PlutonException } from '../../common/errors';
+import { NetworkType, registerNonEvmChain } from '../../common/utils/network_type';
 import { ChainConfigErrors } from './chain_config.errors';
 import { ChainConfig, ChainsJsonShape } from './chain_config.types';
 
@@ -29,9 +30,10 @@ export class ChainConfigService implements OnModuleInit {
       ? (JSON.parse(readFileSync(deployedJsonPath, 'utf8')) as Record<string, string>)
       : {};
 
-    const treasury = (process.env.GASLESS_TREASURY_ADDRESS ?? '').trim();
-    if (!treasury) {
-      this.logger.warn('GASLESS_TREASURY_ADDRESS not set — endpoints that need it will fail');
+    const evmTreasury = (process.env.GASLESS_TREASURY_ADDRESS ?? '').trim();
+    const solanaTreasury = (process.env.GASLESS_SOLANA_TREASURY_ADDRESS ?? '').trim();
+    if (!evmTreasury) {
+      this.logger.warn('GASLESS_TREASURY_ADDRESS not set — EVM endpoints that need it will fail');
     }
 
     const acceptedSet = new Set(
@@ -43,29 +45,46 @@ export class ChainConfigService implements OnModuleInit {
 
     const out = new Map<number, ChainConfig>();
     for (const c of raw.chains) {
+      const networkType: NetworkType = c.networkType === 'SOLANA' ? NetworkType.SOLANA : NetworkType.EVM;
+      if (networkType !== NetworkType.EVM) {
+        registerNonEvmChain(c.chainId, networkType);
+      }
+
       const override = (process.env[c.envRpcVar] ?? '')
         .split(',')
         .map((s) => s.trim())
         .filter((s) => s.length > 0);
-      // If the operator configured private/paid RPCs, use ONLY those — public
-      // defaults from chains.json are skipped to avoid hitting their rate
-      // limits or pulling in unreliable endpoints. Defaults apply only when
-      // the env override is empty.
       const rpcUrls = override.length > 0 ? override : c.defaultRpcs;
 
+      const isEvm = networkType === NetworkType.EVM;
       const tokens = Object.entries(c.tokens).map(([symbol, t]) => ({
         symbol,
-        address: t.address.toLowerCase(),
+        // EVM addresses are case-insensitive (EIP-55 is display only). Solana
+        // addresses are base58 and case-sensitive — must NOT be lowercased.
+        address: isEvm ? t.address.toLowerCase() : t.address.trim(),
         decimals: t.decimals,
       }));
 
-      const chainAcceptedTokens = tokens
-        .filter((t) =>
+      const matchKeys = (t: { symbol: string; address: string }) => {
+        if (isEvm) {
+          return (
+            acceptedSet.has(`${c.chainId}:${t.symbol.toLowerCase()}`) ||
+            acceptedSet.has(`${c.chainId}:${t.address.toLowerCase()}`) ||
+            acceptedSet.has(t.address.toLowerCase())
+          );
+        }
+        // Solana — match either symbol-keyed or raw base58 address (preserving case).
+        return (
           acceptedSet.has(`${c.chainId}:${t.symbol.toLowerCase()}`) ||
           acceptedSet.has(`${c.chainId}:${t.address.toLowerCase()}`) ||
-          acceptedSet.has(t.address.toLowerCase()),
-        )
-        .map((t) => t.address);
+          acceptedSet.has(t.address.toLowerCase())
+        );
+      };
+      const chainAcceptedTokens = tokens.filter(matchKeys).map((t) => t.address);
+
+      const delegateAddress = isEvm
+        ? deployed[String(c.chainId)]?.toLowerCase() ?? null
+        : null;
 
       out.set(c.chainId, {
         chainId: c.chainId,
@@ -73,16 +92,17 @@ export class ChainConfigService implements OnModuleInit {
         displayName: c.displayName,
         nativeSymbol: c.nativeSymbol,
         nativeDecimals: c.nativeDecimals,
+        networkType,
         rangoChainName: c.rangoChainName,
         rpcUrls,
         tokens,
-        delegateContractAddress: deployed[String(c.chainId)]?.toLowerCase() ?? null,
+        delegateContractAddress: delegateAddress,
         acceptedFeeTokenAddresses: chainAcceptedTokens.length > 0 ? chainAcceptedTokens : tokens.map((t) => t.address),
-        treasuryAddress: treasury,
+        treasuryAddress: isEvm ? evmTreasury : solanaTreasury,
       });
     }
     this.chains = out;
-    this.logger.log(`loaded ${out.size} chains: ${[...out.values()].map((c) => c.name).join(', ')}`);
+    this.logger.log(`loaded ${out.size} chains: ${[...out.values()].map((c) => `${c.name}(${c.networkType})`).join(', ')}`);
   }
 
   get(chainId: number): ChainConfig {
@@ -109,12 +129,20 @@ export class ChainConfigService implements OnModuleInit {
 
   tokenByAddress(chainId: number, address: string): { symbol: string; address: string; decimals: number } | null {
     const c = this.get(chainId);
+    if (c.networkType === NetworkType.SOLANA) {
+      const trimmed = address.trim();
+      return c.tokens.find((t) => t.address === trimmed) ?? null;
+    }
     const lower = address.toLowerCase();
     return c.tokens.find((t) => t.address === lower) ?? null;
   }
 
   isFeeTokenAccepted(chainId: number, address: string): boolean {
     const c = this.get(chainId);
+    if (c.networkType === NetworkType.SOLANA) {
+      const trimmed = address.trim();
+      return c.acceptedFeeTokenAddresses.includes(trimmed);
+    }
     return c.acceptedFeeTokenAddresses.includes(address.toLowerCase());
   }
 
