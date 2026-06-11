@@ -44,18 +44,14 @@ export class BatchBuilderService {
         slippage: Number(process.env.GASLESS_RANGO_SLIPPAGE ?? '0.5'),
       });
 
-      if (swap.evmTransaction.approveTo && swap.evmTransaction.approveData) {
-        mustSucceed.push({
-          to: swap.evmTransaction.approveTo,
-          value: '0',
-          data: swap.evmTransaction.approveData,
-        });
+      if (!swap.evmTransaction) {
+        throw new Error('Expected EVM swap response from Rango but got non-EVM');
       }
-      mustSucceed.push({
-        to: swap.evmTransaction.to,
-        value: swap.evmTransaction.value ?? '0',
-        data: swap.evmTransaction.data,
-      });
+      const evmTx = swap.evmTransaction;
+      if (evmTx.approveTo && evmTx.approveData) {
+        mustSucceed.push({ to: evmTx.approveTo, value: '0', data: evmTx.approveData });
+      }
+      mustSucceed.push({ to: evmTx.to, value: evmTx.value ?? '0', data: evmTx.data });
     }
 
     const userOperations: OperationInput[] = userOps.map((o) => ({ to: o.to, value: o.value, data: o.data }));

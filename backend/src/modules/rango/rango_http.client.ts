@@ -9,6 +9,7 @@ import {
   RangoEvmCall,
   RangoQuoteRequest,
   RangoQuoteResult,
+  RangoSolanaCall,
   RangoSwapRequest,
   RangoSwapResult,
 } from './rango.types';
@@ -30,13 +31,16 @@ interface RangoBasicSwapResponse extends RangoBasicQuoteResponse {
   tx?: {
     type: string;
     from?: string;
-    // Rango Basic API uses txTo/txData for the EVM call, distinct from
-    // approveTo/approveData which describe the (optional) prerequisite approve.
+    // EVM fields (type === 'EVM').
     txTo?: string;
     txData?: string;
     value?: string;
     approveTo?: string;
     approveData?: string;
+    // Solana fields (type === 'SOLANA').
+    txType?: 'VERSIONED' | 'LEGACY';
+    serializedMessage?: number[];
+    recentBlockhash?: string;
   };
 }
 
@@ -80,24 +84,43 @@ export class RangoHttpClient extends RangoClient {
     if (data.resultType !== 'OK' || !data.tx) {
       throw PlutonException(RangoErrors.NoRoute, data);
     }
-    if (data.tx.type !== 'EVM') {
-      throw PlutonException(RangoErrors.InvalidResponse, data);
-    }
-    if (!data.tx.txTo || !data.tx.txData) {
-      throw PlutonException(RangoErrors.InvalidResponse, data);
-    }
-    const evm: RangoEvmCall = {
-      from: data.tx.from ?? '',
-      to: data.tx.txTo,
-      data: data.tx.txData,
-      value: data.tx.value ?? '0',
-      approveTo: data.tx.approveTo ?? null,
-      approveData: data.tx.approveData ?? null,
-      approveAddress: data.tx.approveTo ?? null,
-    };
     const out = new BigNumber(data.outputAmount ?? data.route?.outputAmount ?? '0');
     const min = new BigNumber(data.outputAmountMin ?? data.route?.outputAmountMin ?? out.toFixed());
-    return { outputAmount: out, outputAmountMin: min, requestId: data.requestId, evmTransaction: evm, raw: data };
+
+    if (data.tx.type === 'EVM') {
+      if (!data.tx.txTo || !data.tx.txData) {
+        throw PlutonException(RangoErrors.InvalidResponse, data);
+      }
+      const evm: RangoEvmCall = {
+        from: data.tx.from ?? '',
+        to: data.tx.txTo,
+        data: data.tx.txData,
+        value: data.tx.value ?? '0',
+        approveTo: data.tx.approveTo ?? null,
+        approveData: data.tx.approveData ?? null,
+        approveAddress: data.tx.approveTo ?? null,
+      };
+      return { outputAmount: out, outputAmountMin: min, requestId: data.requestId, evmTransaction: evm, raw: data };
+    }
+
+    if (data.tx.type === 'SOLANA') {
+      if (!Array.isArray(data.tx.serializedMessage) || data.tx.serializedMessage.length === 0) {
+        throw PlutonException(RangoErrors.InvalidResponse, data);
+      }
+      if (!data.tx.recentBlockhash) {
+        throw PlutonException(RangoErrors.InvalidResponse, data);
+      }
+      const txType: 'VERSIONED' | 'LEGACY' = data.tx.txType === 'LEGACY' ? 'LEGACY' : 'VERSIONED';
+      const solana: RangoSolanaCall = {
+        serializedMessage: Uint8Array.from(data.tx.serializedMessage),
+        recentBlockhash: data.tx.recentBlockhash,
+        from: data.tx.from ?? '',
+        txType,
+      };
+      return { outputAmount: out, outputAmountMin: min, requestId: data.requestId, solanaTransaction: solana, raw: data };
+    }
+
+    throw PlutonException(RangoErrors.InvalidResponse, data);
   }
 
   private token(t: { chainName: string; address: string | null; symbol: string }): string {

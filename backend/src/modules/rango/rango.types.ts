@@ -39,10 +39,23 @@ export interface RangoEvmCall {
   approveAddress: string | null;
 }
 
+export interface RangoSolanaCall {
+  /** v0 message bytes (no signatures envelope) ready for MessageV0.deserialize. */
+  serializedMessage: Uint8Array;
+  recentBlockhash: string;
+  /** Sender pubkey the message was compiled for. */
+  from: string;
+  /** 'VERSIONED' (almost always Jupiter today) or 'LEGACY'. */
+  txType: 'VERSIONED' | 'LEGACY';
+}
+
 export interface RangoSwapResult {
   outputAmount: BigNumber;
   outputAmountMin: BigNumber;
   requestId: string;
-  evmTransaction: RangoEvmCall;
+  /** Populated when the route lands on an EVM chain. */
+  evmTransaction?: RangoEvmCall;
+  /** Populated when the route lands on Solana. */
+  solanaTransaction?: RangoSolanaCall;
   raw: unknown;
 }
