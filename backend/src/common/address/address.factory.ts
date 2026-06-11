@@ -1,5 +1,6 @@
 import { NetworkType, networkTypeOf } from '../utils/network_type';
 import { SolanaAddress } from '../chain/solana/solana_address';
+import { TonAddress } from '../chain/ton/ton_address';
 import { Address } from './address';
 import { EvmAddress } from './evm_address';
 
@@ -7,6 +8,8 @@ export function addressFor(chainId: number, raw: string): Address {
   switch (networkTypeOf(chainId)) {
     case NetworkType.SOLANA:
       return new SolanaAddress(raw);
+    case NetworkType.TON:
+      return new TonAddress(raw);
     case NetworkType.EVM:
     default:
       return new EvmAddress(raw);

@@ -1,6 +1,9 @@
 export enum NetworkType {
   EVM = 'EVM',
+  COSMOS = 'COSMOS',
+  TON = 'TON',
   SOLANA = 'SOLANA',
+  BTC = 'BTC',
 }
 
 const networkTypeRegistry = new Map<number, NetworkType>();
