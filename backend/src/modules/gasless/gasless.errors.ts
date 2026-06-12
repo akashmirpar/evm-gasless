@@ -44,4 +44,10 @@ export const GaslessErrors = {
     message: 'Gasless transaction request was already submitted',
     service: 'Gasless',
   },
+  TxTooLarge: {
+    code: ErrorCodes.GASLESS_TX_TOO_LARGE,
+    httpCode: 422,
+    message: 'Transaction exceeds the chain-imposed wire size limit (Solana 1232 bytes). Pay the fee in a directly-accepted token (USDC or native), or split the user intent into smaller transactions, or include addressLookupTables in the wire format so the compiler can compress.',
+    service: 'Gasless',
+  },
 } satisfies Record<string, ErrorInfo>;
