@@ -26,4 +26,10 @@ export const RelayerErrors = {
     message: 'Relayer exhausted retries and gave up',
     service: 'Relayer',
   },
+  SolanaBroadcastRejected: {
+    code: ErrorCodes.RELAYER_SOLANA_BROADCAST_REJECTED,
+    httpCode: 502,
+    message: 'Solana RPC rejected the transaction',
+    service: 'SolanaRelayer',
+  },
 } satisfies Record<string, ErrorInfo>;
