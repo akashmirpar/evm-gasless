@@ -1,9 +1,8 @@
-import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
-import { SchedulerRegistry } from '@nestjs/schedule';
-import { CronJob } from 'cron';
+import { Injectable } from '@nestjs/common';
 
 import { startSystemTransaction } from '../../../core/context/context';
 import { transitionStatus } from '../../../core/fsm/transition_status';
+import { ProcessRowResult, RetryPolicy, ScheduledRowProcessor, SchedulerName, SchedulerService } from '../../../core/scheduler';
 import { TransactionRequestEntity } from '../domain/entity/transaction_request.entity';
 import { TransactionRequestAction } from '../domain/entity/status/transaction_request.action';
 import { TransactionRequestStatus, TERMINAL_STATUSES } from '../domain/entity/status/transaction_request.status';
@@ -11,132 +10,151 @@ import { transactionRequestFsm } from '../fsm/transaction_request.fsm';
 import { RelayerService } from '../relayer.service';
 import { EvmExecutorService } from '../services/evm_executor.service';
 
-const MAX_RETRIES = Number(process.env.RELAYER_MAX_RETRIES ?? '6');
-const RETRY_BASE_MS = Number(process.env.RELAYER_RETRY_BASE_MS ?? '5000');
-const RETRY_CAP_MS = Number(process.env.RELAYER_RETRY_CAP_MS ?? '300000');
+const DEFAULT_CRON = '*/5 * * * * *';
 
 @Injectable()
-export class RelayerJob implements OnModuleInit {
-  private readonly logger = new Logger(RelayerJob.name);
-  private running = false;
+export class RelayerJob extends ScheduledRowProcessor<
+  TransactionRequestStatus,
+  TransactionRequestEntity
+> {
+  readonly actionableStatuses: TransactionRequestStatus[] = [
+    TransactionRequestStatus.PENDING,
+    TransactionRequestStatus.BROADCASTING,
+    TransactionRequestStatus.BROADCASTED,
+  ];
 
   constructor(
-    private readonly scheduler: SchedulerRegistry,
+    private readonly scheduler: SchedulerService,
     private readonly relayer: RelayerService,
     private readonly executor: EvmExecutorService,
-  ) {}
-
-  onModuleInit(): void {
-    const cron = process.env.RELAYER_CRON ?? '*/5 * * * * *';
-    const job = new CronJob(cron, () => this.tick());
-    this.scheduler.addCronJob('relayer', job as never);
-    job.start();
+  ) {
+    super();
+    const cron = process.env.RELAYER_CRON ?? DEFAULT_CRON;
+    this.scheduler.register(SchedulerName.EvmRelayer, this, cron);
   }
 
-  async tick(): Promise<void> {
-    if (this.running) return;
-    this.running = true;
+  resolveRetryPolicy(_row: TransactionRequestEntity): RetryPolicy {
+    return {
+      maxRetryTimes: Number(process.env.RELAYER_MAX_RETRIES ?? '6'),
+      baseDelayMs: Number(process.env.RELAYER_RETRY_BASE_MS ?? '5000'),
+      exponentialRate: 2,
+    };
+  }
+
+  protected async findDueRows(statuses: TransactionRequestStatus[], limit: number): Promise<TransactionRequestEntity[]> {
+    const ctx = await startSystemTransaction('relayer-scan');
     try {
-      const sysCtx = await startSystemTransaction('relayer-scan');
-      let rows: TransactionRequestEntity[];
-      try {
-        rows = await this.relayer.findActionable(
-          sysCtx,
-          [TransactionRequestStatus.PENDING, TransactionRequestStatus.BROADCASTING, TransactionRequestStatus.BROADCASTED],
-          50,
-        );
-        await sysCtx.tx.commit();
-      } finally {
-        await sysCtx.tx.done();
-      }
-      for (const row of rows) {
-        await this.processOne(row);
-      }
-    } catch (err) {
-      this.logger.error(`tick failed: ${(err as Error)?.message ?? err}`);
+      const rows = await this.relayer.findActionable(ctx, statuses, limit);
+      await ctx.tx.commit();
+      return rows;
     } finally {
-      this.running = false;
-    }
-  }
-
-  private async processOne(row: TransactionRequestEntity): Promise<void> {
-    if (TERMINAL_STATUSES.has(row.status)) return;
-
-    const ctx = await startSystemTransaction(`relayer-row-${row.id.slice(0, 8)}`);
-    try {
-      if (row.status === TransactionRequestStatus.PENDING) {
-        await transitionStatus(ctx, TransactionRequestEntity, row.id, TransactionRequestAction.START_BROADCAST, transactionRequestFsm);
-        await ctx.tx.commit();
-        await ctx.tx.done();
-        await this.doBroadcast(row);
-        return;
-      }
-      if (row.status === TransactionRequestStatus.BROADCASTING) {
-        // The previous tick crashed between PENDING -> BROADCASTING and the
-        // success/failure transition. If we already have a tx hash, finish the
-        // pending success transition; otherwise rewind to PENDING so the next
-        // tick re-broadcasts.
-        if (row.txHash) {
-          await transitionStatus(ctx, TransactionRequestEntity, row.id, TransactionRequestAction.BROADCAST_SUCCEEDED, transactionRequestFsm);
-        } else {
-          await transitionStatus(ctx, TransactionRequestEntity, row.id, TransactionRequestAction.BROADCAST_FAILED, transactionRequestFsm);
-        }
-        await ctx.tx.commit();
-        await ctx.tx.done();
-        return;
-      }
-      if (row.status === TransactionRequestStatus.BROADCASTED) {
-        await ctx.tx.done();
-        await this.doCheckReceipt(row);
-        return;
-      }
-    } catch (err) {
-      this.logger.error(`processOne id=${row.id} failed: ${(err as Error)?.message ?? err}`);
-      if (ctx.tx.hasOpenTransaction()) await ctx.tx.rollback();
       await ctx.tx.done();
-      await this.recordFailure(row, err);
     }
   }
 
-  private async doBroadcast(row: TransactionRequestEntity): Promise<void> {
+  protected async scheduleNextAttempt(row: TransactionRequestEntity, retryTimes: number, nextRetryTime: Date): Promise<void> {
+    const ctx = await startSystemTransaction('relayer-bump');
+    try {
+      await this.relayer.bumpRetry(ctx, row.id, retryTimes, nextRetryTime);
+      await ctx.tx.commit();
+    } finally {
+      await ctx.tx.done();
+    }
+  }
+
+  async processRow(row: TransactionRequestEntity): Promise<ProcessRowResult> {
+    if (TERMINAL_STATUSES.has(row.status)) return { kind: 'done' };
+
+    if (row.status === TransactionRequestStatus.PENDING) {
+      return this.doBroadcast(row);
+    }
+
+    if (row.status === TransactionRequestStatus.BROADCASTING) {
+      return this.recoverBroadcasting(row);
+    }
+
+    if (row.status === TransactionRequestStatus.BROADCASTED) {
+      return this.doCheckReceipt(row);
+    }
+
+    return { kind: 'done' };
+  }
+
+  async onRetryExhausted(row: TransactionRequestEntity, reason: string): Promise<void> {
+    const ctx = await startSystemTransaction('relayer-give-up');
+    try {
+      await this.relayer.setFailureReason(ctx, row.id, `terminal: ${reason}`);
+      await transitionStatus(ctx, TransactionRequestEntity, row.id, TransactionRequestAction.GIVE_UP, transactionRequestFsm);
+      await ctx.tx.commit();
+    } finally {
+      await ctx.tx.done();
+    }
+  }
+
+  private async doBroadcast(row: TransactionRequestEntity): Promise<ProcessRowResult> {
+    const startCtx = await startSystemTransaction('relayer-broadcast-start');
+    try {
+      await transitionStatus(startCtx, TransactionRequestEntity, row.id, TransactionRequestAction.START_BROADCAST, transactionRequestFsm);
+      await startCtx.tx.commit();
+    } finally {
+      await startCtx.tx.done();
+    }
+
     try {
       const result = await this.executor.broadcast(row);
-      const ctx = await startSystemTransaction('relayer-broadcast-success');
+      const okCtx = await startSystemTransaction('relayer-broadcast-success');
       try {
-        await this.relayer.setTxHash(ctx, row.id, result.txHash, result.rpcUrl);
+        await this.relayer.setTxHash(okCtx, row.id, result.txHash, result.rpcUrl);
+        await transitionStatus(okCtx, TransactionRequestEntity, row.id, TransactionRequestAction.BROADCAST_SUCCEEDED, transactionRequestFsm);
+        await okCtx.tx.commit();
+      } finally {
+        await okCtx.tx.done();
+      }
+      return { kind: 'done' };
+    } catch (err) {
+      const reason = err instanceof Error ? err.message : JSON.stringify(err);
+      const failCtx = await startSystemTransaction('relayer-broadcast-failure');
+      try {
+        await this.relayer.setFailureReason(failCtx, row.id, reason);
+        await transitionStatus(failCtx, TransactionRequestEntity, row.id, TransactionRequestAction.BROADCAST_FAILED, transactionRequestFsm);
+        await failCtx.tx.commit();
+      } finally {
+        await failCtx.tx.done();
+      }
+      return { kind: 'reschedule', reason };
+    }
+  }
+
+  private async recoverBroadcasting(row: TransactionRequestEntity): Promise<ProcessRowResult> {
+    if (row.txHash) {
+      const ctx = await startSystemTransaction('relayer-broadcasting-finish');
+      try {
         await transitionStatus(ctx, TransactionRequestEntity, row.id, TransactionRequestAction.BROADCAST_SUCCEEDED, transactionRequestFsm);
         await ctx.tx.commit();
       } finally {
         await ctx.tx.done();
       }
-    } catch (err) {
-      const ctx = await startSystemTransaction('relayer-broadcast-failure');
-      try {
-        await transitionStatus(ctx, TransactionRequestEntity, row.id, TransactionRequestAction.BROADCAST_FAILED, transactionRequestFsm);
-        await ctx.tx.commit();
-      } finally {
-        await ctx.tx.done();
-      }
-      await this.recordFailure(row, err);
+      return { kind: 'done' };
     }
+    const ctx = await startSystemTransaction('relayer-broadcasting-rewind');
+    try {
+      await this.relayer.setFailureReason(ctx, row.id, 'crash recovery: row found in BROADCASTING with no txHash');
+      await transitionStatus(ctx, TransactionRequestEntity, row.id, TransactionRequestAction.BROADCAST_FAILED, transactionRequestFsm);
+      await ctx.tx.commit();
+    } finally {
+      await ctx.tx.done();
+    }
+    return { kind: 'reschedule', reason: 'broadcasting_crash_recovery' };
   }
 
-  private async doCheckReceipt(row: TransactionRequestEntity): Promise<void> {
+  private async doCheckReceipt(row: TransactionRequestEntity): Promise<ProcessRowResult> {
     const receipt = await this.executor.fetchReceipt(row);
     if (receipt.status === 'pending') {
-      const ctx = await startSystemTransaction('relayer-receipt-pending');
-      try {
-        await this.relayer.bumpRetry(ctx, row.id, row.retryTimes, new Date(Date.now() + this.backoff(row.retryTimes)));
-        await ctx.tx.commit();
-      } finally {
-        await ctx.tx.done();
-      }
-      return;
+      return { kind: 'reschedule', reason: 'tx_pending' };
     }
-    const action =
-      receipt.status === 'success'
-        ? TransactionRequestAction.MARK_MINED_SUCCESS
-        : TransactionRequestAction.MARK_MINED_FAILED;
+    const action = receipt.status === 'success'
+      ? TransactionRequestAction.MARK_MINED_SUCCESS
+      : TransactionRequestAction.MARK_MINED_FAILED;
     const ctx = await startSystemTransaction('relayer-receipt-final');
     try {
       if (receipt.status === 'reverted') {
@@ -147,28 +165,6 @@ export class RelayerJob implements OnModuleInit {
     } finally {
       await ctx.tx.done();
     }
-  }
-
-  private async recordFailure(row: TransactionRequestEntity, err: unknown): Promise<void> {
-    const reason = err instanceof Error ? err.message : JSON.stringify(err);
-    const stack = err instanceof Error ? err.stack : undefined;
-    this.logger.warn(`recordFailure id=${row.id} fromStatus=${row.status} retryTimes=${row.retryTimes} txHash=${row.txHash ?? 'none'} reason=${reason}${stack ? ` stack=${stack.split('\n').slice(0, 3).join(' | ')}` : ''}`);
-    const ctx = await startSystemTransaction('relayer-fail-mode');
-    try {
-      const retryTimes = row.retryTimes + 1;
-      await this.relayer.setFailureReason(ctx, row.id, reason);
-      if (retryTimes >= MAX_RETRIES) {
-        await transitionStatus(ctx, TransactionRequestEntity, row.id, TransactionRequestAction.GIVE_UP, transactionRequestFsm);
-      } else {
-        await this.relayer.bumpRetry(ctx, row.id, retryTimes, new Date(Date.now() + this.backoff(retryTimes)));
-      }
-      await ctx.tx.commit();
-    } finally {
-      await ctx.tx.done();
-    }
-  }
-
-  private backoff(retries: number): number {
-    return Math.min(RETRY_BASE_MS * Math.pow(2, retries), RETRY_CAP_MS);
+    return { kind: 'done' };
   }
 }
