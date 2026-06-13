@@ -47,7 +47,14 @@ export const GaslessErrors = {
   TxTooLarge: {
     code: ErrorCodes.GASLESS_TX_TOO_LARGE,
     httpCode: 422,
-    message: 'Transaction exceeds the chain-imposed wire size limit (Solana 1232 bytes). Pay the fee in a directly-accepted token (USDC or native), or split the user intent into smaller transactions, or include addressLookupTables in the wire format so the compiler can compress.',
+    message:
+      'Transaction exceeds the chain-imposed wire size limit (Solana 1232 bytes). ' +
+      'Options that actually help: ' +
+      '(a) pay the fee in native SOL — the fee prelude collapses to one SystemProgram.transfer (~96 bytes saved vs direct-SPL); ' +
+      '(b) ensure the operator treasury ATA for the fee mint already exists on-chain so the prelude skips CreateAssociatedTokenAccount (~80 bytes + 1 instruction saved); ' +
+      '(c) include addressLookupTables that cover the common static accounts (system program, token program, token-2022, ATA program, fee mint, treasury); ' +
+      '(d) split the user intent into smaller transactions. ' +
+      'Switching between directly-accepted SPL fee tokens (e.g. USDC ↔ xTSLA) does NOT change the size — the prelude shape is identical.',
     service: 'Gasless',
   },
 } satisfies Record<string, ErrorInfo>;
