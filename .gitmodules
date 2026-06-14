@@ -1,0 +1,3 @@
+[submodule "backend/src/common/chain"]
+	path = backend/src/common/chain
+	url = https://github.com/pluton-bridge/omnichain.git
