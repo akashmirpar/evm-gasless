@@ -44,6 +44,15 @@ export const GaslessErrors = {
     message: 'Gasless transaction request was already submitted',
     service: 'Gasless',
   },
+  InsufficientFeeBalance: {
+    code: ErrorCodes.GASLESS_INSUFFICIENT_FEE_BALANCE,
+    httpCode: 422,
+    message:
+      'User wallet balance is below the quoted fee amount at submit time. ' +
+      'This usually means the user moved tokens out of their wallet between estimate and submit, ' +
+      'or the quoted fee has drifted upward (less common). Re-quote via /estimate and try again.',
+    service: 'Gasless',
+  },
   TxTooLarge: {
     code: ErrorCodes.GASLESS_TX_TOO_LARGE,
     httpCode: 422,

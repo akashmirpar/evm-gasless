@@ -22,7 +22,7 @@ export class GaslessCacheService {
   private readonly ttlMs: number;
 
   constructor(@Inject(CACHE_MANAGER) private readonly cache: Cache) {
-    this.ttlMs = Number(process.env.GASLESS_CREATE_TTL_SECONDS ?? '300') * 1_000;
+    this.ttlMs = Number(process.env.GASLESS_CREATE_TTL_SECONDS ?? '90') * 1_000;
   }
 
   async put(requestId: string, data: CachedRequest): Promise<void> {

@@ -58,7 +58,7 @@ export class GaslessService {
     const digest = this.batchHash.digest(dto.chainId, dto.userAddress, built.operations, built.atomicGroupStart, batchNonce);
 
     const requestId = uuidv4();
-    const ttlSeconds = Number(process.env.GASLESS_CREATE_TTL_SECONDS ?? '300');
+    const ttlSeconds = Number(process.env.GASLESS_CREATE_TTL_SECONDS ?? '90');
     const expiresAtSeconds = Math.floor(Date.now() / 1000) + ttlSeconds;
 
     await this.cache.put(requestId, {
