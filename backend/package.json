@@ -92,6 +92,9 @@
     "moduleNameMapper": {
       "^src/(.*)$": "<rootDir>/$1"
     },
+    "transformIgnorePatterns": [
+      "/node_modules/(?!(@solana|rpc-websockets|superstruct|jayson)/)"
+    ],
     "testPathIgnorePatterns": ["/node_modules/", "common/chain/"]
   }
 }
