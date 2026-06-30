@@ -1,6 +1,8 @@
 import { Injectable } from '@nestjs/common';
 import { Contract } from 'ethers';
 
+import { PlutonException } from '../../../common/errors';
+import { ErrorCodes } from '../../../common/errors/codes';
 import { ChainConfigService } from '../../../core/chain_config/chain_config.service';
 import { RpcService } from '../../../core/rpc/rpc.service';
 
@@ -37,8 +39,16 @@ export class DelegateStateService {
         const contract = new Contract(userAddress, DELEGATE_NONCE_ABI, provider);
         try {
           return BigInt(await contract.nonce());
-        } catch {
-          return 0n;
+        } catch (err) {
+          throw PlutonException(
+            {
+              code: ErrorCodes.GASLESS_INVALID_REQUEST,
+              httpCode: 400,
+              message: `Cannot read GaslessDelegate nonce for ${userAddress} on chain ${chainId}. The address may not have a GaslessDelegate authorization, or the chain RPC is unhealthy.`,
+              service: 'DelegateState',
+            },
+            err,
+          );
         }
       });
     }

@@ -66,37 +66,31 @@ export class FeeEstimatorService {
     const acceptedResult = await this.convertNativeToAccepted(chainId, cfg, acceptedAddress, nativeFeeWei);
     const feeAmountInAccepted = acceptedResult.feeAmountInFeeToken;
 
-    const swapQuote = await this.rango.quote({
-      from: this.tokenOf(cfg, feeTokenLower),
-      to: this.tokenOf(cfg, acceptedAddress),
+    // We want: "what is feeAmountInAccepted of the accepted token worth in the user's fee token?"
+    // Rango's quote interprets `amount` as INPUT-side units, so we invert the direction.
+    // The actual on-chain swap goes user→accepted; the inverse quote here just prices the conversion.
+    const inverseQuote = await this.rango.quote({
+      from: this.tokenOf(cfg, acceptedAddress),
+      to: this.tokenOf(cfg, feeTokenLower),
       amount: feeAmountInAccepted.toFixed(),
     });
-    const swapOutMin = swapQuote.outputAmountMin;
-
-    if (swapOutMin.isLessThan(feeAmountInAccepted)) {
-      const required = feeAmountInAccepted
-        .multipliedBy(feeAmountInAccepted)
-        .dividedBy(swapOutMin.isZero() ? feeAmountInAccepted : swapOutMin)
-        .integerValue(BigNumber.ROUND_CEIL);
-      this.logger.debug(`scaling up input from ${feeAmountInAccepted.toFixed()} to ${required.toFixed()} due to slippage`);
-      return {
-        feeTokenAddress: feeTokenLower,
-        feeAmountInFeeToken: required,
-        acceptedFeeToken: false,
-        gasUnits,
-        nativeFeeAmount: nativeFeeWei,
-        swapRoute: { inputToken: feeTokenLower, outputToken: acceptedAddress, outputAmount: swapOutMin },
-        acceptedFeeTokenAddress: acceptedAddress,
-      };
+    if (inverseQuote.outputAmount.isZero()) {
+      throw PlutonException(GaslessErrors.FeeTokenNotAcceptedAndNoRoute, { reason: 'inverse quote returned zero output' });
     }
+    // Buffer for the actual swap (user→accepted) slippage. Round-trip slippage doubles the configured one-side slippage.
+    const slippagePct = Number(process.env.GASLESS_RANGO_SLIPPAGE ?? '0.5') * 2;
+    const feeAmountInFeeToken = inverseQuote.outputAmount
+      .multipliedBy(100 + slippagePct)
+      .dividedBy(100)
+      .integerValue(BigNumber.ROUND_CEIL);
 
     return {
       feeTokenAddress: feeTokenLower,
-      feeAmountInFeeToken: feeAmountInAccepted,
+      feeAmountInFeeToken,
       acceptedFeeToken: false,
       gasUnits,
       nativeFeeAmount: nativeFeeWei,
-      swapRoute: { inputToken: feeTokenLower, outputToken: acceptedAddress, outputAmount: swapOutMin },
+      swapRoute: { inputToken: feeTokenLower, outputToken: acceptedAddress, outputAmount: feeAmountInAccepted },
       acceptedFeeTokenAddress: acceptedAddress,
     };
   }

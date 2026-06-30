@@ -19,6 +19,7 @@ export interface BroadcastResult {
 @Injectable()
 export class EvmExecutorService {
   private readonly logger = new Logger(EvmExecutorService.name);
+  private readonly operatorMutex = new Map<string, Promise<unknown>>();
 
   constructor(
     private readonly chainConfig: ChainConfigService,
@@ -31,6 +32,19 @@ export class EvmExecutorService {
     return new Wallet(pk);
   }
 
+  private async withOperatorLock<T>(operatorAddress: string, fn: () => Promise<T>): Promise<T> {
+    const prior = this.operatorMutex.get(operatorAddress) ?? Promise.resolve();
+    const next = prior.catch(() => undefined).then(fn);
+    this.operatorMutex.set(operatorAddress, next);
+    try {
+      return await next;
+    } finally {
+      if (this.operatorMutex.get(operatorAddress) === next) {
+        this.operatorMutex.delete(operatorAddress);
+      }
+    }
+  }
+
   async broadcast(req: TransactionRequestEntity): Promise<BroadcastResult> {
     const cfg = this.chainConfig.get(req.chainId);
     const data = DELEGATE_IFACE.encodeFunctionData('executeBatch', [
@@ -41,11 +55,11 @@ export class EvmExecutorService {
     ]);
     const operator = this.operatorWallet;
 
-    return this.rpc.withFallback<BroadcastResult>(req.chainId, async (provider, url) => {
+    return this.withOperatorLock(operator.address, () => this.rpc.withFallback<BroadcastResult>(req.chainId, async (provider, url) => {
       const alreadyDelegated = await this.isAlreadyDelegated(provider, req.userAddress, req.delegateContractAddress);
       const ownerSigner = operator.connect(provider);
       const fee = await provider.getFeeData();
-      const ownerNonce = await provider.getTransactionCount(operator.address);
+      const ownerNonce = await provider.getTransactionCount(operator.address, 'pending');
 
       const minTip = parseUnits('0.05', 'gwei');
       const maxPriorityFeePerGas = (fee.maxPriorityFeePerGas ?? 0n) < minTip ? minTip : (fee.maxPriorityFeePerGas ?? minTip);
@@ -71,9 +85,7 @@ export class EvmExecutorService {
       const tx = await provider.broadcastTransaction(signedTx);
       this.logger.log(`broadcast id=${req.id} chain=${req.chainId} hash=${tx.hash}`);
       return { txHash: tx.hash, rpcUrl: url };
-    }).catch((err) => {
-      throw PlutonException(RelayerErrors.BroadcastFailed, err, 'system');
-    });
+    }));
   }
 
   async fetchReceipt(req: TransactionRequestEntity): Promise<{ status: 'pending' } | { status: 'success' | 'reverted'; blockNumber: number }> {

@@ -13,7 +13,34 @@ interface NestExceptionPayload {
 interface ErrorBody {
   code: number;
   message: string;
-  causes?: Array<{ field?: string; message: string }>;
+  causes?: Array<{ field?: string; message: string } | Record<string, unknown>>;
+}
+
+const CAUSES_MAX_BYTES = 6000;
+
+function sanitizeUrlsInString(s: string): string {
+  return s
+    .replace(/(https?:\/\/[^\/\s)]+)\/[a-f0-9]{32,}/gi, '$1/<redacted>')
+    .replace(/([?&](?:apiKey|api_key|auth|token|key)=)[^&\s)]+/gi, '$1<redacted>')
+    .replace(/(\/v[23]\/)[a-f0-9]{32,}/gi, '$1<redacted>')
+    .replace(/(Bearer\s+)[A-Za-z0-9._\-]+/g, '$1<redacted>');
+}
+
+function serializeCause(cause: unknown): unknown {
+  if (cause === undefined || cause === null) return null;
+  if (cause instanceof Error) {
+    return { type: cause.constructor.name, message: sanitizeUrlsInString(cause.message) };
+  }
+  if (typeof cause === 'string') return sanitizeUrlsInString(cause);
+  if (typeof cause === 'object') {
+    try {
+      const s = JSON.stringify(cause);
+      return JSON.parse(sanitizeUrlsInString(s.length > CAUSES_MAX_BYTES ? s.slice(0, CAUSES_MAX_BYTES) + '"…[truncated]"' : s));
+    } catch {
+      return { error: 'unserializable cause' };
+    }
+  }
+  return cause;
 }
 
 @Catch()
@@ -53,14 +80,20 @@ export class AllExceptionsFilter implements ExceptionFilter {
   private format(exception: unknown): { status: number; body: ErrorBody } {
     if (exception instanceof PlutonHttpException) {
       const info = exception.errorInfo;
-      return { status: info.httpCode, body: { code: info.code, message: info.message } };
+      const body: ErrorBody = { code: info.code, message: info.message };
+      if (exception.causes.length > 0) {
+        body.causes = exception.causes.map(serializeCause).filter((c) => c !== null) as ErrorBody['causes'];
+      }
+      return { status: info.httpCode, body };
     }
 
     if (exception instanceof PlutonSystemException) {
-      return {
-        status: SystemErrors.General.httpCode,
-        body: { code: SystemErrors.General.code, message: SystemErrors.General.message },
-      };
+      const info = exception.errorInfo;
+      const body: ErrorBody = { code: info.code, message: info.message };
+      if (exception.causes.length > 0) {
+        body.causes = exception.causes.map(serializeCause).filter((c) => c !== null) as ErrorBody['causes'];
+      }
+      return { status: info.httpCode, body };
     }
 
     if (exception instanceof HttpException) {

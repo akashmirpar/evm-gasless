@@ -5,6 +5,7 @@ import { v4 as uuidv4 } from 'uuid';
 import { PlutonException } from '../../../common/errors';
 import { ChainConfigService } from '../../../core/chain_config/chain_config.service';
 import { IContext } from '../../../core/context/context';
+import { RpcService } from '../../../core/rpc/rpc.service';
 import { RelayerService } from '../../relayer/relayer.service';
 import { TransactionRequestEntity } from '../../relayer/domain/entity/transaction_request.entity';
 import { CreateTransactionRequestDto, CreateTransactionResponseDto } from '../dto/create_transaction.dto';
@@ -28,6 +29,7 @@ export class GaslessService {
     private readonly delegateState: DelegateStateService,
     private readonly cache: GaslessCacheService,
     private readonly relayer: RelayerService,
+    private readonly rpc: RpcService,
   ) {}
 
   async estimate(dto: EstimateRequestDto): Promise<EstimateResponseDto> {
@@ -120,6 +122,17 @@ export class GaslessService {
       Signature.from(dto.authorization.signature);
     } catch (err) {
       throw PlutonException(GaslessErrors.InvalidAuthorization, err);
+    }
+
+    const onChainNonce = await this.rpc.withFallback(cached.chainId, async (provider) => {
+      return provider.getTransactionCount(cached.userAddress, 'latest');
+    });
+    if (BigInt(dto.authorization.nonce) !== BigInt(onChainNonce)) {
+      throw PlutonException(GaslessErrors.InvalidAuthorization, {
+        reason: 'authorization nonce does not match user EOA on-chain tx count',
+        providedNonce: dto.authorization.nonce,
+        onChainNonce: onChainNonce.toString(),
+      });
     }
 
     const existing = await this.relayer.findByRequestId(ctx, requestId);

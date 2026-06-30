@@ -59,6 +59,8 @@ export abstract class ScheduledRowProcessor<
     }
   }
 
+  private readonly poisonThrowCounter = new Map<string, number>();
+
   private async processWithRetry(row: E): Promise<void> {
     let policy: RetryPolicy;
     try {
@@ -72,8 +74,18 @@ export abstract class ScheduledRowProcessor<
     let result: ProcessRowResult;
     try {
       result = await this.processRow(row);
+      this.poisonThrowCounter.delete(row.id);
     } catch (err) {
-      this.logger.warn(`processRow threw — waiting (no budget cap) id=${row.id} err=${(err as Error)?.message ?? err}`);
+      const consecutive = (this.poisonThrowCounter.get(row.id) ?? 0) + 1;
+      this.poisonThrowCounter.set(row.id, consecutive);
+      const maxConsecutive = policy.maxRetryTimes + 1;
+      if (consecutive >= maxConsecutive) {
+        this.logger.error(`processRow threw ${consecutive} times in a row (cap ${maxConsecutive}) — escalating to exhaustion id=${row.id} err=${(err as Error)?.message ?? err}`);
+        this.poisonThrowCounter.delete(row.id);
+        await this.safeOnExhausted(row, `poison_row:${(err as Error)?.message ?? 'unknown'}`);
+        return;
+      }
+      this.logger.warn(`processRow threw (${consecutive}/${maxConsecutive}) — waiting id=${row.id} err=${(err as Error)?.message ?? err}`);
       await this.scheduleWait(row, policy);
       return;
     }

@@ -1,5 +1,6 @@
 import { Injectable } from '@nestjs/common';
 
+import { PlutonHttpException, PlutonSystemException } from '../../../common/errors/pluton_exception';
 import { startSystemTransaction } from '../../../core/context/context';
 import { transitionStatus } from '../../../core/fsm/transition_status';
 import { ProcessRowResult, RetryPolicy, ScheduledRowProcessor, SchedulerName, SchedulerService } from '../../../core/scheduler';
@@ -112,7 +113,7 @@ export class RelayerJob extends ScheduledRowProcessor<
       }
       return { kind: 'done' };
     } catch (err) {
-      const reason = err instanceof Error ? err.message : JSON.stringify(err);
+      const reason = formatFailureReason(err);
       const failCtx = await startSystemTransaction('relayer-broadcast-failure');
       try {
         await this.relayer.setFailureReason(failCtx, row.id, reason);
@@ -150,7 +151,7 @@ export class RelayerJob extends ScheduledRowProcessor<
   private async doCheckReceipt(row: TransactionRequestEntity): Promise<ProcessRowResult> {
     const receipt = await this.executor.fetchReceipt(row);
     if (receipt.status === 'pending') {
-      return { kind: 'reschedule', reason: 'tx_pending' };
+      return { kind: 'wait', reason: 'tx_pending' };
     }
     const action = receipt.status === 'success'
       ? TransactionRequestAction.MARK_MINED_SUCCESS
@@ -167,4 +168,28 @@ export class RelayerJob extends ScheduledRowProcessor<
     }
     return { kind: 'done' };
   }
+}
+
+function sanitizeReason(s: string): string {
+  return s
+    .replace(/(https?:\/\/[^\/\s)]+)\/[a-f0-9]{32,}/gi, '$1/<redacted>')
+    .replace(/([?&](?:apiKey|api_key|auth|token|key)=)[^&\s)]+/gi, '$1<redacted>')
+    .replace(/(\/v[23]\/)[a-f0-9]{32,}/gi, '$1<redacted>')
+    .replace(/(Bearer\s+)[A-Za-z0-9._\-]+/g, '$1<redacted>');
+}
+
+function formatFailureReason(err: unknown): string {
+  if (!(err instanceof Error)) return sanitizeReason(JSON.stringify(err));
+  let reason = sanitizeReason(err.message);
+  if (err instanceof PlutonSystemException || err instanceof PlutonHttpException) {
+    const cause = err.causes[0];
+    if (cause && typeof cause === 'object') {
+      const serialized = JSON.stringify(cause);
+      if (serialized && serialized !== '{}') {
+        const safe = sanitizeReason(serialized);
+        reason += ` | ${safe.length > 6000 ? safe.slice(0, 6000) + '"…[truncated]"' : safe}`;
+      }
+    }
+  }
+  return reason;
 }

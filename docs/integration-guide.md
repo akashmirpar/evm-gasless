@@ -549,7 +549,7 @@ The backend uses stable numeric error codes. Each one is family-agnostic; the sa
 | `40003` | 404 | Request ID not found |
 | `40004` | 410 | Request expired (the create→submit TTL passed before signature arrived; default TTL is 90 seconds) |
 | `40005` | 400 | Invalid signature |
-| `40006` | 400 | Invalid EIP-7702 authorization |
+| `40006` | 400 | Invalid EIP-7702 authorization (mismatched address/chainId/signature OR `authorization.nonce` does not match the user's current EOA `eth_getTransactionCount` at submit time — fetch via `provider.getTransactionCount(userAddress, 'latest')` immediately before signing to avoid races) |
 | `40007` | 409 | Request was already submitted |
 | `40008` | 422 | Solana transaction exceeds 1232-byte wire limit |
 | `40009` | 422 | User's fee-token balance is below the quoted fee at submit time (user moved tokens out between estimate and submit) |
@@ -566,6 +566,26 @@ The backend uses stable numeric error codes. Each one is family-agnostic; the sa
 | `90099` | 500 | Generic system error (something we didn't classify) |
 
 Important: when you hit `50005` on Solana, the response body includes the actual Solana program logs in `failureReason`. Parse those — they tell you exactly what failed at the protocol level.
+
+### Error response shape — `causes[]` chain
+
+Every error response carries the typed code + message. When the underlying exception had a `causes[]` chain (RPC attempts, mint addresses, Rango payloads, validator-side logs), those are now serialized into the response body as an array. RPC URLs in the cause objects are sanitized — API keys after the last path segment, `?apiKey=`/`?key=`/`?auth=`/`?token=` query params, and Bearer tokens are replaced with `<redacted>` before persistence and before serving.
+
+```json
+{
+  "success": false,
+  "error": {
+    "code": 20002,
+    "message": "All RPCs failed for chain 56 (tried 2 URL(s))",
+    "causes": [
+      { "url": "https://bsc-rpc.publicnode.com", "error": "fetch failed" },
+      { "url": "https://1rpc.io", "error": "timeout 30000ms exceeded" }
+    ]
+  }
+}
+```
+
+Same shape for Solana `50005` rejections — the `causes` array carries `{transactionMessage, logs, computedSignature?}` for the rejected broadcast.
 
 ---
 

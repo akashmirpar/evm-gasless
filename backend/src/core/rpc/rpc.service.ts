@@ -1,7 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { JsonRpcProvider, Network } from 'ethers';
 
-import { PlutonException } from '../../common/errors';
+import { PlutonException, isPlutonException } from '../../common/errors';
 import { ErrorCodes } from '../../common/errors/codes';
 import { ChainConfigService } from '../chain_config/chain_config.service';
 
@@ -24,14 +24,15 @@ export class RpcService {
         service: 'Rpc',
       });
     }
-    const errors: unknown[] = [];
+    const attempts: Array<{ url: string; error: string }> = [];
     for (const url of cfg.rpcUrls) {
       const provider = this.providerFor(chainId, url);
       try {
         const out = await op(provider, url);
         return out;
       } catch (err) {
-        errors.push(err);
+        if (isPlutonException(err)) throw err;
+        attempts.push({ url: redactUrl(url), error: (err as Error)?.message ?? String(err) });
         provider.destroy();
       }
     }
@@ -39,10 +40,19 @@ export class RpcService {
       {
         code: ErrorCodes.CHAIN_RPC_UNAVAILABLE,
         httpCode: 503,
-        message: `All RPCs failed for chain ${chainId}`,
+        message: `All RPCs failed for chain ${chainId} (tried ${attempts.length} URL(s))`,
         service: 'Rpc',
       },
-      errors,
+      attempts,
     );
+  }
+}
+
+function redactUrl(url: string): string {
+  try {
+    const u = new URL(url);
+    return `${u.protocol}//${u.host}`;
+  } catch {
+    return '<rpc>';
   }
 }
