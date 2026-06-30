@@ -57,6 +57,9 @@ export class TransactionRequestEntity extends BaseStatefulEntity<TransactionRequ
   @Column({ name: 'tx_hash', type: 'varchar', nullable: true })
   txHash!: string | null;
 
+  @Column({ name: 'signed_tx', type: 'text', nullable: true })
+  signedTx!: string | null;
+
   @Column({ name: 'broadcast_rpc_url', type: 'varchar', nullable: true })
   broadcastRpcUrl!: string | null;
 

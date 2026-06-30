@@ -101,11 +101,26 @@ export class RelayerJob extends ScheduledRowProcessor<
       await startCtx.tx.done();
     }
 
+    let signedTx = row.signedTx;
+    let txHash = row.txHash;
+    if (!signedTx || !txHash) {
+      const prepared = await this.executor.prepare(row);
+      signedTx = prepared.signedTx;
+      txHash = prepared.txHash;
+      const persistCtx = await startSystemTransaction('relayer-broadcast-persist');
+      try {
+        await this.relayer.setPreparedBroadcast(persistCtx, row.id, txHash, signedTx);
+        await persistCtx.tx.commit();
+      } finally {
+        await persistCtx.tx.done();
+      }
+    }
+
     try {
-      const result = await this.executor.broadcast(row);
+      const result = await this.executor.send(row.chainId, signedTx);
       const okCtx = await startSystemTransaction('relayer-broadcast-success');
       try {
-        await this.relayer.setTxHash(okCtx, row.id, result.txHash, result.rpcUrl);
+        await this.relayer.setBroadcastRpcUrl(okCtx, row.id, result.rpcUrl);
         await transitionStatus(okCtx, TransactionRequestEntity, row.id, TransactionRequestAction.BROADCAST_SUCCEEDED, transactionRequestFsm);
         await okCtx.tx.commit();
       } finally {
@@ -116,7 +131,7 @@ export class RelayerJob extends ScheduledRowProcessor<
       const reason = formatFailureReason(err);
       const failCtx = await startSystemTransaction('relayer-broadcast-failure');
       try {
-        await this.relayer.setFailureReason(failCtx, row.id, reason);
+        await this.relayer.setFailureReason(failCtx, row.id, `${reason} (hash ${txHash} persisted; retry will re-send same signed bytes)`);
         await transitionStatus(failCtx, TransactionRequestEntity, row.id, TransactionRequestAction.BROADCAST_FAILED, transactionRequestFsm);
         await failCtx.tx.commit();
       } finally {

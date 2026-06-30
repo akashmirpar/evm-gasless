@@ -397,6 +397,23 @@ await postJson(`${BASE_URL}/gasless/solana/transactions/${created.requestId}/sub
 
 The wallet handles the ed25519 signature internally. You only need to extract the resulting signature from the slot matching the user's pubkey.
 
+### Solana swap-fee path size limits — when it fits, when it doesn't
+
+The swap-fee path appends Rango/Jupiter swap instructions on top of the user's intent. Solana's 1232-byte wire limit means **two swaps in one transaction usually don't fit**. Practical guidance:
+
+| User intent | Fee path | Result |
+|---|---|---|
+| Simple SPL transfer (1-2 instructions) | Swap-fee (non-accepted token) | ✓ Fits — works |
+| Simple SPL transfer | Direct-accepted fee (USDC, xTSLA, …) | ✓ Trivially fits |
+| Same-chain SPL swap via Jupiter | Swap-fee | ✗ Two swaps + ALTs almost never fit → `40008 GASLESS_TX_TOO_LARGE` |
+| Same-chain SPL swap via Jupiter | Direct-accepted fee | ✓ Works (one swap + direct fee) |
+| Cross-chain bridge (Solana → BSC etc.) | Swap-fee | ✗ Bridge + Jupiter fee-swap + ALTs → 40008 |
+| Cross-chain bridge | Direct-accepted fee | ✓ Works (bridge + one TransferChecked) |
+
+**Practical rule:** if the user's intent is "a simple SPL/SOL transfer" the swap-fee path works in any fee token. If the user's intent already contains a swap or bridge, **insist on a directly-accepted fee token** (USDC is the safest default on Solana mainnet).
+
+When you hit `40008`, the response body's `message` field lists the four options that actually help — switching to a directly-accepted fee token is almost always the right one.
+
 ### Solana fee-token behavior — what's accepted directly vs swapped
 
 The accepted-fee-token list is configured per-cluster via `GASLESS_ACCEPTED_FEE_TOKENS` env var. The default on Solana mainnet (`chainId: -100`) is:
@@ -669,6 +686,14 @@ If your wallet currently runs `RewriteAtaPayer` and `DedupeByteIdentical` on Ran
 - **Don't remove your passes if the backend isn't on `db53d81` or later.** Without our prefund, you'd see the original "insufficient lamports 0, need 2039280" failure again.
 
 You can verify the backend version by hitting `GET /version` (returns commit hash) or by checking the broadcaster logs for the new prefund line (`[SolanaBatchBuilderService] prefunding user … with N lamports …`).
+
+**Behavior change 2026-06-30 — fees on bridges with ATA-creates are now higher (the correct amount):**
+
+Until this date the backend silently absorbed the ATA-rent cost of every `CreateAssociatedTokenAccount` inside the user's intent — ~$0.30 per ATA at $150 SOL. After the M1 audit fix, the rent cost is now included in `feeAmount` returned by `/estimate`. **Concrete effect: bridges that create 2 routing ATAs now quote ~$0.60 more in fee than they did yesterday.** Native SOL transfers and simple SPL transfers without ATA-creates are unaffected.
+
+If your wallet shows a fee preview to the user that was cached from a prior `/estimate` response, that cached value is now wrong — re-quote when the user opens the bridge screen. If you always call `/estimate` live, you'll just see the higher (correct) number on the next call.
+
+Operator-side impact: stops the silent subsidy. At 100 bridges/day this was costing ~$60/day or ~$22k/year of operator SOL evaporating into routing-intermediate ATAs.
 
 **Special-case routes that need an override:**
 

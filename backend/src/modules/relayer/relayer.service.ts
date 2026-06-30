@@ -57,6 +57,14 @@ export class RelayerService {
     await ctx.tx.manager.update(TransactionRequestEntity, { id }, { txHash, broadcastRpcUrl: rpcUrl });
   }
 
+  async setPreparedBroadcast(ctx: IContext, id: string, txHash: string, signedTx: string): Promise<void> {
+    await ctx.tx.manager.update(TransactionRequestEntity, { id }, { txHash, signedTx });
+  }
+
+  async setBroadcastRpcUrl(ctx: IContext, id: string, rpcUrl: string): Promise<void> {
+    await ctx.tx.manager.update(TransactionRequestEntity, { id }, { broadcastRpcUrl: rpcUrl });
+  }
+
   async setFailureReason(ctx: IContext, id: string, reason: string): Promise<void> {
     await ctx.tx.manager.update(TransactionRequestEntity, { id }, { failureReason: reason });
   }

@@ -1,5 +1,5 @@
 import { Injectable, Logger } from '@nestjs/common';
-import { Interface, JsonRpcProvider, Signature, Wallet, parseUnits } from 'ethers';
+import { Interface, JsonRpcProvider, Signature, Transaction, Wallet, parseUnits } from 'ethers';
 
 import { PlutonException } from '../../../common/errors';
 import { ChainConfigService } from '../../../core/chain_config/chain_config.service';
@@ -14,6 +14,11 @@ const DELEGATE_IFACE = new Interface([
 export interface BroadcastResult {
   txHash: string;
   rpcUrl: string;
+}
+
+export interface PreparedTx {
+  signedTx: string;
+  txHash: string;
 }
 
 @Injectable()
@@ -45,8 +50,7 @@ export class EvmExecutorService {
     }
   }
 
-  async broadcast(req: TransactionRequestEntity): Promise<BroadcastResult> {
-    const cfg = this.chainConfig.get(req.chainId);
+  async prepare(req: TransactionRequestEntity): Promise<PreparedTx> {
     const data = DELEGATE_IFACE.encodeFunctionData('executeBatch', [
       req.operations.map((o) => [o.to, BigInt(o.value), o.data]),
       BigInt(req.atomicGroupStart),
@@ -55,7 +59,7 @@ export class EvmExecutorService {
     ]);
     const operator = this.operatorWallet;
 
-    return this.withOperatorLock(operator.address, () => this.rpc.withFallback<BroadcastResult>(req.chainId, async (provider, url) => {
+    return this.withOperatorLock(operator.address, () => this.rpc.withFallback<PreparedTx>(req.chainId, async (provider) => {
       const alreadyDelegated = await this.isAlreadyDelegated(provider, req.userAddress, req.delegateContractAddress);
       const ownerSigner = operator.connect(provider);
       const fee = await provider.getFeeData();
@@ -81,11 +85,21 @@ export class EvmExecutorService {
         maxPriorityFeePerGas,
         authorizationList: useType4 ? [this.toAuthorizationStruct(req)] : undefined,
       });
-
-      const tx = await provider.broadcastTransaction(signedTx);
-      this.logger.log(`broadcast id=${req.id} chain=${req.chainId} hash=${tx.hash}`);
-      return { txHash: tx.hash, rpcUrl: url };
+      const parsed = Transaction.from(signedTx);
+      const txHash = parsed.hash;
+      if (!txHash) {
+        throw PlutonException(RelayerErrors.BroadcastFailed, new Error('signed tx has no derivable hash'), 'system');
+      }
+      return { signedTx, txHash };
     }));
+  }
+
+  async send(chainId: number, signedTx: string): Promise<BroadcastResult> {
+    return this.rpc.withFallback<BroadcastResult>(chainId, async (provider, url) => {
+      const tx = await provider.broadcastTransaction(signedTx);
+      this.logger.log(`broadcast chain=${chainId} hash=${tx.hash}`);
+      return { txHash: tx.hash, rpcUrl: url };
+    });
   }
 
   async fetchReceipt(req: TransactionRequestEntity): Promise<{ status: 'pending' } | { status: 'success' | 'reverted'; blockNumber: number }> {
