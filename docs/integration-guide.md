@@ -540,6 +540,7 @@ The backend uses stable numeric error codes. Each one is family-agnostic; the sa
 | `20002` | 503 | All RPC endpoints unreachable for the chain |
 | `20003` | 400 | No deployed delegate contract for the chain |
 | `20004` | 400 | Fee token not found in chain config |
+| `20005` | 502 | Chain gas estimation failed |
 | `30001` | 502 | Rango request failed |
 | `30002` | 422 | Rango has no route for the requested swap |
 | `30003` | 502 | Rango returned an invalid response |
@@ -553,7 +554,15 @@ The backend uses stable numeric error codes. Each one is family-agnostic; the sa
 | `40008` | 422 | Solana transaction exceeds 1232-byte wire limit |
 | `40009` | 422 | User's fee-token balance is below the quoted fee at submit time (user moved tokens out between estimate and submit) |
 | `50001` | 502 | Generic broadcast failure (legacy — Solana now uses 50005) |
+| `50002` | 504 | Transaction not mined within the relayer's wait window |
+| `50003` | 502 | Transaction mined but reverted on-chain |
+| `50004` | 500 | Relayer exhausted retries and gave up |
 | `50005` | 502 | Solana broadcast rejected (includes program logs) |
+| `80001` | 503 | Health check failed (internal use; should not appear in client responses) |
+| `90001` | 400 | System validation error (DTO/class-validator failure with field-level details) |
+| `90002` | 404 | System resource not found (generic; prefer the 4xx-domain codes above when applicable) |
+| `90003` | 409 | Illegal FSM transition — the row's status does not permit the requested action (typically operator-side bug; integrators should not retry, surface the original request to support) |
+| `90004` | 409 | Concurrent FSM transition — two workers raced on the same row; the loser sees this. Retry is safe |
 | `90099` | 500 | Generic system error (something we didn't classify) |
 
 Important: when you hit `50005` on Solana, the response body includes the actual Solana program logs in `failureReason`. Parse those — they tell you exactly what failed at the protocol level.

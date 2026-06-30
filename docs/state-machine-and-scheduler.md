@@ -274,6 +274,12 @@ const SchedulerName = {
 
 The override env var for `SCHEDULER_EVM_RELAYER` is `SCHEDULER_EVM_RELAYER_TIME`.
 
+**Default cron values currently in use (gasless backend):**
+
+- `RELAYER_CRON` / `RELAYER_SOLANA_CRON` — both default to `*/5 * * * * *` (every 5 seconds). Each relayer (EVM and Solana) ticks independently on this schedule. Tick durations under no load are ~4-30 ms; the `running` guard prevents reentrance if a tick is still in flight when the next cron fires.
+
+Status-polling cadence on the client side should NOT be tighter than this — there's no point checking more often than the backend itself ticks. 2-5 seconds is the sweet spot for client polling.
+
 ### 2.8 Logging
 
 The base class logs at three points:
