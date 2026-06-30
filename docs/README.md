@@ -9,10 +9,11 @@ This directory documents the gasless transaction relayer system so other project
 | Doc | When to read |
 |-----|--------------|
 | [architecture.md](architecture.md) | Understanding the system before integrating. Components, data flow, who-signs-what. Covers both the EVM (EIP-7702 delegate) path and the Solana (native fee-payer) path. |
-| [api-reference.md](api-reference.md) | Reference for every EVM HTTP endpoint, request/response shapes, error codes. |
-| [integration-guide.md](integration-guide.md) | Step-by-step code (ethers v6) showing the full EVM flow from a client app: estimate → create → user signs → submit → poll. |
-| [solana.md](solana.md) | Solana-specific reference: how it differs from EVM (no delegation contract, native multi-sig fee-payer model), endpoint shapes, full integration sample using @solana/web3.js. |
+| [api-reference.md](api-reference.md) | Reference for every HTTP endpoint, request/response shapes, error codes. |
+| [integration-guide.md](integration-guide.md) | **Unified** step-by-step integration for EVM and Solana: architecture overview, endpoints, code samples for both families, signing format, status polling, error codes, rollout notes. Start here. |
+| [solana.md](solana.md) | Solana operations reference: configuration env vars, fee-tuning curve, gotchas (blockhash semantics, case-sensitive addresses, treasury ATA pre-creation), and Solana-specific debugging. Read after integration-guide.md when configuring an operator or debugging a stuck request. |
 | [error-codes.md](error-codes.md) | Full numeric error registry, when each fires, suggested client handling. |
+| [state-machine-and-scheduler.md](state-machine-and-scheduler.md) | Internal design spec for the FSM + cron-scheduler abstraction used by both relayer jobs. Read if porting the relayer pattern to another language or refactoring the scheduler. |
 
 ## Contract docs
 
