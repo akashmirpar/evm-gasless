@@ -42,6 +42,20 @@ The gasless backend exposes four HTTP endpoints per family. The shape is paralle
 
 `<family>` is `evm` for EVM chains, `solana` for Solana clusters.
 
+## Supported chains
+
+| chainId | Family | Network | Native | Default-accepted fee tokens |
+| --- | --- | --- | --- | --- |
+| 56 | evm | BSC | BNB | USDT |
+| 8453 | evm | Base | ETH | USDT |
+| 42161 | evm | Arbitrum One | ETH | USDT |
+| -100 | solana | Solana mainnet | SOL | USDC, xTSLA, xNVDA, xAAPL |
+| -102 | solana | Solana devnet | SOL | USDC (test only) |
+
+Solana cluster IDs are negative integers because Solana doesn't natively have a numeric chain ID — the negative space is a Pluton-side convention so the same `chainId` parameter can route both families.
+
+Add or change a chain by editing `gasless/chains/chains.json` and (for EVM) `gasless/chains/deployed.json` to record the deployed `GaslessDelegate` address. The backend reads both at boot.
+
 Backend internals (you don't need to know these to integrate, but useful for debugging):
 
 - **Operator wallet** signs transactions as the network fee payer. We hold one operator per family per cluster.
@@ -357,6 +371,59 @@ Solana V0 transactions can reference accounts via Address Lookup Tables (ALTs). 
 
 If you forget step 4, the backend has to inline every referenced account at full 32-byte cost and you'll hit `40008 GASLESS_TX_TOO_LARGE` on anything but trivial intents.
 
+### Solana browser-wallet signing (Phantom, Solflare, Backpack)
+
+Browser wallets expose a signing API at `window.solana.signTransaction(tx)` that takes a `VersionedTransaction` instance and returns the same instance with the user's signature filled in. The flow:
+
+```ts
+import { VersionedTransaction } from '@solana/web3.js';
+import bs58 from 'bs58';
+
+const tx = VersionedTransaction.deserialize(
+  Buffer.from(created.unsignedTransactionBase64, 'base64'),
+);
+// Phantom/Solflare/Backpack — same interface
+const signed = await window.solana.signTransaction(tx);
+
+// Find the user's signature slot
+const userPubkey = new PublicKey(userAddress);
+const slot = signed.message.staticAccountKeys.findIndex((k) => k.equals(userPubkey));
+const userSig = bs58.encode(signed.signatures[slot]);
+
+await postJson(`${BASE_URL}/gasless/solana/transactions/${created.requestId}/submit`, {
+  userSignature: userSig,
+});
+```
+
+The wallet handles the ed25519 signature internally. You only need to extract the resulting signature from the slot matching the user's pubkey.
+
+### Solana fee-token behavior — what's accepted directly vs swapped
+
+The accepted-fee-token list is configured per-cluster via `GASLESS_ACCEPTED_FEE_TOKENS` env var. The default on Solana mainnet (`chainId: -100`) is:
+
+```
+GASLESS_ACCEPTED_FEE_TOKENS=56:USDT,8453:USDT,42161:USDT,-100:USDC,-100:xTSLA,-100:xNVDA,-100:xAAPL
+```
+
+**Three fee paths exist on Solana:**
+
+| Path | When | What we do |
+| --- | --- | --- |
+| Native SOL fee | `feeTokenAddress` = `11111111111111111111111111111111` (or omitted) | One `SystemProgram.transfer` from user to treasury — cheapest tx; user needs SOL in their wallet beyond what the bridge consumes |
+| Direct-accepted SPL fee | `feeTokenAddress` ∈ accepted list (USDC, xTSLA, etc.) | `TransferChecked` of fee token from user's ATA to operator's treasury ATA. No swap, no Rango call. |
+| Swap fee | `feeTokenAddress` is NOT in accepted list | Rango/Jupiter quote → swap instructions appended that convert user's token → accepted token → treasury. Adds ~200k CU + ~3 instructions. |
+
+For the swap path, sub-$0.10 fees historically returned `30002 NO_ROUTE` from Jupiter because DEX pool minimums kicked in. The backend now enforces `SOLANA_MIN_FEE_LAMPORTS` (default 666_666 ≈ $0.10 worth of SOL) ONLY on the swap-fee path; the native + direct-SPL paths use the actual cost without a floor.
+
+If you support fee-tokens with thin DEX pools (long-tail SPLs), raise the floor toward `3_333_333` (~$0.50) via env. If you only support liquid pairs, lower toward `333_333` (~$0.05).
+
+### Solana gotchas (read once before integrating)
+
+- **Atomicity is whole-tx.** If your last user instruction reverts, the fee transfer reverts too — operator gets nothing. Solana has no EVM-style "must-succeed zone preserves the fee" primitive; that requires the EIP-7702 self-call trick which has no analogue here. Build user intents that succeed under realistic state.
+- **Blockhash is the freshness primitive, not a per-user nonce.** Don't cache backend responses across users or across long delays. If the user takes more than ~45-60s to sign, throw away the `requestId` and call `/transactions` again (the default `GASLESS_CREATE_TTL_SECONDS=90` already enforces this).
+- **Solana addresses are case-sensitive base58.** Don't `.toLowerCase()` them anywhere — `addressFactory` already routes Solana chain IDs to `SolanaAddress` which preserves case.
+- **The submit endpoint re-verifies user fee-token balance** (added 2026-06-30). If the user moved tokens out of their wallet between signing and submitting, you'll get `40009 GASLESS_INSUFFICIENT_FEE_BALANCE` and no operator funds will be spent. Re-quote via `/estimate` and try again.
+
 ---
 
 ## EVM integration
@@ -620,3 +687,53 @@ If you hit a failure mode after rollout, the relevant flow tags in the backend l
 - `terminal: …` — the request was classified as non-retryable (simulation error, blockhash expiry, etc.)
 
 For anything else, hit us with the `requestId` and we'll debug from the backend side.
+
+---
+
+## Operator configuration (for backend operators only)
+
+This section is for whoever runs the gasless backend, not integrators. Integrators can skip it.
+
+### Required env vars
+
+| Var | What it sets |
+| --- | --- |
+| `DATABASE_POSTGRES_*` | Postgres connection (host/port/user/password/database). Required at boot. |
+| `REDIS_*` | Redis for create→submit cache. `REDIS_DEFAULT_TTL_SECONDS=300` is overall cache cap; per-stash TTL governed by `GASLESS_CREATE_TTL_SECONDS=90`. |
+| `OPERATOR_PRIVATE_KEY` | EVM operator EOA (pays gas, becomes type-4 `from`). |
+| `GASLESS_TREASURY_ADDRESS` | EVM address that receives user fees. If unset, falls back to operator pubkey with a startup warning — fine in dev, **NOT** for production. |
+| `SOLANA_OPERATOR_PRIVATE_KEY` OR `SOLANA_OPERATOR_MNEMONIC` + `SOLANA_OPERATOR_ACCOUNT_INDEX` | Solana operator keypair. Phantom path `m/44'/501'/{index}'/0'`. |
+| `GASLESS_SOLANA_TREASURY_ADDRESS` | Solana base58 pubkey receiving fees. Defaults to operator pubkey (same warning applies). |
+| `RANGO_API_URL`, `RANGO_API_KEY` | Rango Basic API credentials. |
+
+### Tuning knobs
+
+| Var | Default | What it does |
+| --- | --- | --- |
+| `GASLESS_BASE_FEE_MARKUP_PERCENT` | `15` | Operator margin on top of raw gas cost. |
+| `GASLESS_DEFAULT_GAS_UNITS` | `1500000` | Fallback gas units when EVM estimation fails. |
+| `GASLESS_TX_GAS_LIMIT` | `2000000` | Hard cap on the type-4 envelope. |
+| `GASLESS_RANGO_SLIPPAGE` | `0.5` | One-side slippage (%) sent to Rango for fee-token swaps. The backend applies 2× this as a buffer on the inverse-quote pattern. |
+| `GASLESS_CREATE_TTL_SECONDS` | `90` | Window between `/transactions` and `/submit`. Tighter = less race exposure; looser = more forgiving of slow mobile-wallet flows. |
+| `GASLESS_MAX_PREFUND_LAMPORTS` | `50000000` | Hard ceiling on operator→user SOL prefund per tx. Caller overrides exceeding this return `40001`. |
+| `SOLANA_DEFAULT_PRIORITY_MICROLAMPORTS_PER_CU` | `1000` | Default priority fee. Raise during congestion. |
+| `SOLANA_SOL_USD_PRICE`, `SOLANA_FEE_TOKEN_USD_PRICE` | unset | Required to enable the price-cross fallback when Rango is unavailable on swap-fee path. Backend refuses fallback math without both set (prevents silent operator subsidy). |
+| `SOLANA_MIN_FEE_LAMPORTS` | `666666` (≈$0.10) | Minimum fee on the swap-fee path only. Curve: $0.005 → fails routinely; $0.03 → minute-to-minute variance; $0.10 → always works for mainstream pairs; $0.50+ → works for thin meme pools. |
+| `RELAYER_CRON` / `RELAYER_SOLANA_CRON` | `*/5 * * * * *` | Cron cadence for the EVM / Solana relayer ticks (every 5s). |
+| `RELAYER_MAX_RETRIES` | `6` | Max retry-budget per row (per-row column snapshots on insert). |
+
+### Treasury ATA pre-creation (Solana)
+
+When a user pays in an SPL fee token whose operator-side treasury ATA does not yet exist, the auto-fee-prelude `CreateAssociatedTokenAccount` adds ~80 bytes to the message. That can push complex bridges over Solana's 1232-byte limit. The fix is one-time per fee-token mint: send 0 (or any) units of the SPL to the operator's treasury address, which creates the ATA. After that, the prelude skips the create and uses ~80 fewer bytes per request.
+
+Mints already pre-created on the production operator:
+
+| Token | Mint | Treasury ATA |
+| --- | --- | --- |
+| USDC | `EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v` | `7uxjAsPKfLFUD3q1xFhjfBgvgvT2YJ9nRbU7XdWU9Wst` |
+| USDT | `Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB` | `BWsjbkc2QKPoncKYu3CeQGbBuSn2W9PF7CYv4BhhccmC` |
+| xTSLA | `XsDoVfqeBukxuZHWhdvWHBhgEHjGNst4MLodqsJHzoB` | `9AANNpBCxRnWbUg1adNPEfqcNje4xY2SwEZrrm1VrgLG` |
+| xNVDA | `Xsc9qvGR1efVDFGLrVsmkzv3qi45LTBjeUKSPmx9qEh` | `HkDSNvDA7ecpRFUrmvVXQgJ4vutmF1gZT2ApegT7KkNH` |
+| xAAPL | `XsbEhLAtcf6HdfpFZ5xEMdqW8nfAvcsP5bdudRLJzJp` | `BV81ypMMo49gun8tbBAikego7sxbfdqMJuxxsPBC4frt` |
+
+Pre-create tx: [`3JkMa1cVtA3Axk6L5CcktFRxFxJ2EEuA6stYa1HA8uZJ4BwcTr9yiqTxFKsvYFapambHh8Bj8KM3ZHDB7tTgQ8qX`](https://solscan.io/tx/3JkMa1cVtA3Axk6L5CcktFRxFxJ2EEuA6stYa1HA8uZJ4BwcTr9yiqTxFKsvYFapambHh8Bj8KM3ZHDB7tTgQ8qX). Repeat the same one-shot for any new accepted-SPL fee token before announcing it as accepted.
