@@ -621,7 +621,7 @@ The backend uses stable numeric error codes. Each one is family-agnostic; the sa
 | Code | HTTP | Meaning |
 | --- | --- | --- |
 | `20001` | 400 | Chain not supported |
-| `20002` | 503 | All RPC endpoints unreachable for the chain |
+| `20002` | 502/503 | RPC unreachable or contract call reverted at RPC (also returned when a delegated EOA's `GaslessDelegate.nonce()` read fails — retry with backoff) |
 | `20003` | 400 | No deployed delegate contract for the chain |
 | `20004` | 400 | Fee token not found in chain config |
 | `20005` | 502 | Chain gas estimation failed |

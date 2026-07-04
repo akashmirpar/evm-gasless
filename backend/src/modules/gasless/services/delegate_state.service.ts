@@ -36,15 +36,17 @@ export class DelegateStateService {
     }
     if (!anySucceeded) {
       return this.rpc.withFallback(chainId, async (provider) => {
+        const code = await provider.getCode(userAddress);
+        if (isFreshEoa(code)) return 0n;
         const contract = new Contract(userAddress, DELEGATE_NONCE_ABI, provider);
         try {
           return BigInt(await contract.nonce());
         } catch (err) {
           throw PlutonException(
             {
-              code: ErrorCodes.GASLESS_INVALID_REQUEST,
-              httpCode: 400,
-              message: `Cannot read GaslessDelegate nonce for ${userAddress} on chain ${chainId}. The address may not have a GaslessDelegate authorization, or the chain RPC is unhealthy.`,
+              code: ErrorCodes.CHAIN_RPC_UNAVAILABLE,
+              httpCode: 502,
+              message: `GaslessDelegate nonce read failed for ${userAddress} on chain ${chainId}. Address has non-empty code (${code.slice(0, 20)}…) but nonce() call reverted — likely an RPC issue or the EOA is delegated to a different contract.`,
               service: 'DelegateState',
             },
             err,
@@ -58,6 +60,8 @@ export class DelegateStateService {
   private async readNonceFrom(rpcUrl: string, userAddress: string, chainId: number): Promise<bigint> {
     const provider = this.rpc.providerFor(chainId, rpcUrl);
     try {
+      const code = await provider.getCode(userAddress);
+      if (isFreshEoa(code)) return 0n;
       const contract = new Contract(userAddress, DELEGATE_NONCE_ABI, provider);
       const n = await contract.nonce();
       return BigInt(n);
@@ -65,4 +69,9 @@ export class DelegateStateService {
       provider.destroy();
     }
   }
+}
+
+function isFreshEoa(code: string): boolean {
+  const c = code.toLowerCase();
+  return c === '0x' || c === '0x0' || c === '';
 }
