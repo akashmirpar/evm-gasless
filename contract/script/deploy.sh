@@ -86,6 +86,14 @@ for row in "${chain_rows[@]}"; do
   echo "deploying to $name (chain $chain_id) via $rpc_url"
   echo "============================================================"
 
+  existing="$(jq -r --arg key "$chain_id" '.[$key] // empty' "$deployed_json")"
+  if [[ -n "$existing" && "${FORCE_REDEPLOY:-}" != "1" ]]; then
+    echo "SKIP: chain $chain_id already has a deployed delegate at $existing." >&2
+    echo "      Re-deploying would break existing EIP-7702 authorizations pointing at the old address." >&2
+    echo "      Set FORCE_REDEPLOY=1 to override (dangerous)." >&2
+    continue
+  fi
+
   cd "$contract_dir"
   verify_args=()
   if [[ -n "${ETHERSCAN_API_KEY:-}" ]]; then
