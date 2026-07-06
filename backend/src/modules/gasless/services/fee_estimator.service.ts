@@ -2,12 +2,35 @@ import { Injectable, Logger } from '@nestjs/common';
 import BigNumber from 'bignumber.js';
 
 import { PlutonException } from '../../../common/errors';
+import { ErrorCodes } from '../../../common/errors/codes';
 import { ChainConfigService, isNativeSentinel, NATIVE_TOKEN_SENTINEL } from '../../../core/chain_config/chain_config.service';
 import { RpcService } from '../../../core/rpc/rpc.service';
 import { TokenMetadataService } from '../../../core/token_metadata/token_metadata.service';
 import { RangoClient } from '../../rango/rango.client';
 import { GaslessErrors } from '../gasless.errors';
 import { UserOpDto } from '../dto/estimate.dto';
+
+function readPositiveNumber(envValue: string | undefined, fallback: number, name: string): number {
+  const raw = (envValue ?? '').trim();
+  if (raw === '') return fallback;
+  const n = Number(raw);
+  if (!Number.isFinite(n) || n < 0) {
+    throw new Error(`invalid ${name}: expected a positive finite number, got "${raw}"`);
+  }
+  return n;
+}
+
+function readPositiveBigInt(envValue: string | undefined, fallback: bigint, name: string): bigint {
+  const raw = (envValue ?? '').trim();
+  if (raw === '') return fallback;
+  try {
+    const v = BigInt(raw);
+    if (v < 0n) throw new Error('negative');
+    return v;
+  } catch {
+    throw new Error(`invalid ${name}: expected a non-negative integer, got "${raw}"`);
+  }
+}
 
 export interface FeeEstimate {
   feeTokenAddress: string;
@@ -39,8 +62,8 @@ export class FeeEstimatorService {
     private readonly rango: RangoClient,
     private readonly tokenMetadata: TokenMetadataService,
   ) {
-    this.baseFeeMarkupPercent = Number(process.env.GASLESS_BASE_FEE_MARKUP_PERCENT ?? '15');
-    this.defaultGasUnits = BigInt(process.env.GASLESS_DEFAULT_GAS_UNITS ?? '1500000');
+    this.baseFeeMarkupPercent = readPositiveNumber(process.env.GASLESS_BASE_FEE_MARKUP_PERCENT, 15, 'GASLESS_BASE_FEE_MARKUP_PERCENT');
+    this.defaultGasUnits = readPositiveBigInt(process.env.GASLESS_DEFAULT_GAS_UNITS, 1_500_000n, 'GASLESS_DEFAULT_GAS_UNITS');
   }
 
   async estimate(chainId: number, userAddress: string, feeTokenAddress: string, ops: UserOpDto[]): Promise<FeeEstimate> {
@@ -49,7 +72,17 @@ export class FeeEstimatorService {
     const gasUnits = await this.estimateGasUnits(chainId, userAddress, ops);
     const gasPriceWei = await this.rpc.withFallback(chainId, async (provider) => {
       const fee = await provider.getFeeData();
-      const candidate = fee.maxFeePerGas ?? fee.gasPrice ?? 1_000_000_000n;
+      const candidate = fee.maxFeePerGas ?? fee.gasPrice;
+      if (candidate === null || candidate === undefined || BigInt(candidate) === 0n) {
+        throw PlutonException(
+          {
+            code: ErrorCodes.CHAIN_GAS_ESTIMATION_FAILED,
+            httpCode: 502,
+            message: `Chain ${chainId} RPC returned no usable gas price (both maxFeePerGas and gasPrice were null/zero). Refusing to fall back to a hardcoded default because the operator would silently under-quote the fee under load.`,
+            service: 'FeeEstimator',
+          },
+        );
+      }
       return BigInt(candidate);
     });
 
@@ -103,7 +136,7 @@ export class FeeEstimatorService {
       throw PlutonException(GaslessErrors.FeeTokenNotAcceptedAndNoRoute, { reason: 'inverse quote returned zero output' });
     }
 
-    const slippagePct = Number(process.env.GASLESS_RANGO_SLIPPAGE ?? '0.5') * 2;
+    const slippagePct = readPositiveNumber(process.env.GASLESS_RANGO_SLIPPAGE, 0.5, 'GASLESS_RANGO_SLIPPAGE') * 2;
     const feeAmountInFeeToken = inverseQuote.outputAmount
       .multipliedBy(100 + slippagePct)
       .dividedBy(100)
@@ -136,11 +169,28 @@ export class FeeEstimatorService {
         }
         return total;
       });
-      if (estimated === 0n) return this.defaultGasUnits;
+      if (estimated === 0n) {
+        // Every op reporting 0 gas is an RPC anomaly (not a "this batch is
+        // free" signal). Don't silently substitute a default — fall through
+        // to the catch so the caller sees a real error.
+        throw new Error(`estimateGas totalled 0 across ${ops.length} ops — RPC anomaly, refusing to substitute default`);
+      }
+      // Fresh EOAs can't actually execute the user's batch under estimateGas
+      // (no delegate code yet), so the RPC will often revert. Add a wider
+      // buffer to cover that.
       const buffered = (estimated * 12n) / 10n;
       return buffered;
     } catch (err) {
-      this.logger.warn(`gas estimation failed; falling back to default: ${(err as Error)?.message ?? err}`);
+      // Real revert reasons flow here — chain-side balance short, calldata
+      // wrong, target contract missing. Log at ERROR level with the specific
+      // reason so integrator debugging isn't a scavenger hunt. We still fall
+      // back to `defaultGasUnits` because a fresh 7702 EOA can't be
+      // estimateGas'd against its own future delegate code — treating every
+      // revert as a "your op is doomed" would break the golden path.
+      this.logger.error(
+        `estimateGas failed for chain=${chainId} user=${userAddress} ops=${ops.length}; using default ${this.defaultGasUnits}. ` +
+          `reason: ${(err as Error)?.message ?? err}`,
+      );
       return this.defaultGasUnits;
     }
   }

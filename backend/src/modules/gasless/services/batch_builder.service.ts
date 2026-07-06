@@ -76,12 +76,23 @@ export class BatchBuilderService {
       // non-zero and MUST equal the fee amount we quoted. If Rango returned an
       // approve for a native input, or value ≠ feeAmount, we refuse the batch
       // rather than silently miss-charge the user.
+      const swapOp = mustSucceed[mustSucceed.length - 1];
+      const swapValue = BigInt(swapOp.value || '0');
       if (estimate.isNativeFeeToken) {
-        const swapOp = mustSucceed[mustSucceed.length - 1];
-        const swapValue = BigInt(swapOp.value || '0');
         if (swapValue !== BigInt(estimate.feeAmountInFeeToken.toFixed())) {
           throw PlutonException(GaslessErrors.FeeTokenNotAcceptedAndNoRoute, {
             reason: `Rango native-swap tx value (${swapValue}) does not match quoted fee (${estimate.feeAmountInFeeToken.toFixed()})`,
+          });
+        }
+      } else {
+        // Symmetric guard for the ERC-20 input path: the swap op must NOT
+        // pull native value out of the user's EOA. A compromised or
+        // misbehaving Rango response with `value > 0` here would drain the
+        // user's ETH silently, since the operation is in the must-succeed
+        // group. Refuse before the user ever signs.
+        if (swapValue !== 0n) {
+          throw PlutonException(GaslessErrors.FeeTokenNotAcceptedAndNoRoute, {
+            reason: `Rango ERC-20-swap tx unexpectedly requires native value=${swapValue} (must be 0 for token-in swaps)`,
           });
         }
       }

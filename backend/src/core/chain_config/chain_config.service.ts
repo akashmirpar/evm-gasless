@@ -153,7 +153,13 @@ export class ChainConfigService implements OnModuleInit {
       legacyAcceptedSet.has(t.address.toLowerCase()),
     );
     const accepted = matches.length > 0 ? matches.map((t) => t.address) : tokens.map((t) => t.address);
-    const main = accepted[0] ?? '';
+    if (accepted.length === 0) {
+      throw new Error(
+        `chains.json: Solana chain ${c.chainId} (${c.name}) has no accepted fee tokens — either the tokens map is empty or the ` +
+          `GASLESS_ACCEPTED_FEE_TOKENS env var filters everything out. Add at least one accepted SPL to continue.`,
+      );
+    }
+    const main = accepted[0];
     return { tokens, acceptedFeeTokenAddresses: accepted, mainFeeTokenAddress: main };
   }
 

@@ -141,6 +141,7 @@ export class GaslessService {
       cached.feeTokenAddress,
       BigInt(cached.feeAmount),
       cached.operations,
+      cached.atomicGroupStart,
     );
 
     const existing = await this.relayer.findByRequestId(ctx, requestId);
@@ -179,29 +180,50 @@ export class GaslessService {
     feeTokenAddress: string,
     feeAmount: bigint,
     operations: Array<{ value: string }>,
+    atomicGroupStart: number,
   ): Promise<void> {
     const isNative = isNativeSentinel(feeTokenAddress);
-    let sumOpValue = 0n;
-    if (isNative) {
-      for (const op of operations) {
-        sumOpValue += BigInt(op.value || '0');
-      }
-    }
-    const required = feeAmount + sumOpValue;
-    const balance = await this.rpc.withFallback(chainId, async (provider) => {
-      if (isNative) return BigInt(await provider.getBalance(userAddress, 'latest'));
+    // Only the user-op tail contributes extra native value. The prelude (ops
+    // 0..atomicGroupStart) is operator-inserted — for the native swap-fee
+    // path the prelude's swap op already carries `value = feeAmount`, so
+    // summing the whole batch would double-count it.
+    const userOps = operations.slice(atomicGroupStart);
+    let userOpValueSum = 0n;
+    for (const op of userOps) userOpValueSum += BigInt(op.value || '0');
+    const nativeRequired = isNative ? feeAmount + userOpValueSum : userOpValueSum;
+    const feeRequired = isNative ? nativeRequired : feeAmount;
+
+    const balances = await this.rpc.withFallback(chainId, async (provider) => {
+      const native = BigInt(await provider.getBalance(userAddress, 'latest'));
+      if (isNative) return { fee: native, native };
       const erc20 = new Contract(feeTokenAddress, ['function balanceOf(address) view returns (uint256)'], provider);
-      return BigInt(await erc20.balanceOf(userAddress));
+      const fee = BigInt(await erc20.balanceOf(userAddress));
+      return { fee, native };
     });
-    if (balance < required) {
+
+    if (balances.fee < feeRequired) {
       throw PlutonException(GaslessErrors.InsufficientFeeBalance, {
         userAddress,
         feeTokenAddress,
-        required: required.toString(),
-        actual: balance.toString(),
+        required: feeRequired.toString(),
+        actual: balances.fee.toString(),
         native: isNative,
         feeAmount: feeAmount.toString(),
-        opValueSum: sumOpValue.toString(),
+        userOpValueSum: userOpValueSum.toString(),
+      });
+    }
+    // For ERC-20 fee tokens, the user might still be paying native value out
+    // of the same batch (e.g., an op that transfers ETH). We surface that
+    // shortfall as the same 40009 rather than letting the batch revert
+    // silently on-chain in the may-fail group.
+    if (!isNative && userOpValueSum > 0n && balances.native < userOpValueSum) {
+      throw PlutonException(GaslessErrors.InsufficientFeeBalance, {
+        userAddress,
+        feeTokenAddress,
+        required: userOpValueSum.toString(),
+        actual: balances.native.toString(),
+        native: false,
+        reason: 'user-op native value exceeds balance',
       });
     }
   }
