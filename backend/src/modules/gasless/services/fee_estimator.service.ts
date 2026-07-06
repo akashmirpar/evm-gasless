@@ -155,8 +155,9 @@ export class FeeEstimatorService {
   }
 
   private async estimateGasUnits(chainId: number, userAddress: string, ops: UserOpDto[]): Promise<bigint> {
+    let estimated: bigint;
     try {
-      const estimated = await this.rpc.withFallback(chainId, async (provider) => {
+      estimated = await this.rpc.withFallback(chainId, async (provider) => {
         let total = 0n;
         for (const op of ops) {
           const g = await provider.estimateGas({
@@ -169,30 +170,31 @@ export class FeeEstimatorService {
         }
         return total;
       });
-      if (estimated === 0n) {
-        // Every op reporting 0 gas is an RPC anomaly (not a "this batch is
-        // free" signal). Don't silently substitute a default — fall through
-        // to the catch so the caller sees a real error.
-        throw new Error(`estimateGas totalled 0 across ${ops.length} ops — RPC anomaly, refusing to substitute default`);
-      }
-      // Fresh EOAs can't actually execute the user's batch under estimateGas
-      // (no delegate code yet), so the RPC will often revert. Add a wider
-      // buffer to cover that.
-      const buffered = (estimated * 12n) / 10n;
-      return buffered;
     } catch (err) {
-      // Real revert reasons flow here — chain-side balance short, calldata
-      // wrong, target contract missing. Log at ERROR level with the specific
-      // reason so integrator debugging isn't a scavenger hunt. We still fall
-      // back to `defaultGasUnits` because a fresh 7702 EOA can't be
-      // estimateGas'd against its own future delegate code — treating every
-      // revert as a "your op is doomed" would break the golden path.
+      // Fresh 7702 EOAs can't be estimateGas'd against their own future
+      // delegate code, so a revert here is expected on the golden path. Log
+      // at ERROR level with the specific reason so integrator debugging
+      // isn't a scavenger hunt, then fall back to the configured default.
       this.logger.error(
         `estimateGas failed for chain=${chainId} user=${userAddress} ops=${ops.length}; using default ${this.defaultGasUnits}. ` +
           `reason: ${(err as Error)?.message ?? err}`,
       );
       return this.defaultGasUnits;
     }
+    if (estimated === 0n) {
+      // Every op reporting 0 gas is an RPC anomaly (not a "this batch is
+      // free" signal). Throwing lets the caller see 20005 rather than a
+      // silent under-quote at defaultGasUnits.
+      throw PlutonException(
+        {
+          code: ErrorCodes.CHAIN_GAS_ESTIMATION_FAILED,
+          httpCode: 502,
+          message: `Chain ${chainId} RPC returned 0 total gas across ${ops.length} ops — RPC anomaly, refusing to substitute default.`,
+          service: 'FeeEstimator',
+        },
+      );
+    }
+    return (estimated * 12n) / 10n;
   }
 
   private rangoNativeToken(cfg: ReturnType<ChainConfigService['get']>): RangoTokenDescriptor {
