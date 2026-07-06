@@ -565,6 +565,53 @@ async function signAuth(wallet: Wallet, delegate: string, nonce: bigint, chainId
 }
 ```
 
+### EVM fee-token behavior — accept any ERC-20 or native (RIN-113)
+
+The EVM fee-token whitelist has been dropped. The backend accepts **any** `feeTokenAddress` the caller passes — no chain-side pre-approval or config update required to add a new token. Three paths, chosen automatically per request:
+
+**1. Direct-accept (fee token is on the chain's `acceptedFeeTokens` list)**
+
+`chains.json` per-chain fields:
+- `acceptedFeeTokens: [addr...]` — treated as "already valuable to the operator" and collected via a plain `ERC20.transfer(user → treasury)` op prepended to the batch. No Rango swap.
+- `mainFeeToken: addr` — the single token everything unaccepted gets swapped INTO. **Must** be one of `acceptedFeeTokens` (self-consistency: the swap target is itself acceptable).
+
+Current per-chain config: only USDT is direct-accepted on BSC (`0x55d3…7955`), Base (`0xfde4…9bb2`), and Arbitrum (`0xfd08…cbb9`). Change requires a config edit + backend restart; no code change.
+
+**2. Native fee (`feeTokenAddress = 0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee`)**
+
+Industry-standard native-token sentinel (1inch, Rango, Paraswap all recognize it). Recognized case-insensitively. Backend prepends a Rango-routed **native → mainFeeToken** swap to the batch that pulls the fee out of the user's EOA via `msg.value` and settles the mainFeeToken output to the treasury.
+
+Balance check: `getBalance(user)` ≥ `feeAmount + sum(op.value)`. Ops that transfer native value in the same batch add to the required balance.
+
+**3. Any arbitrary ERC-20 (not in `acceptedFeeTokens`)**
+
+Same swap-fee-path as native, but with an ERC-20 input:
+- Decimals fetched on-chain via `ERC20.decimals()`, cached in Redis for 24h. A revert / non-uint8 response returns `40010 FEE_TOKEN_UNREADABLE`.
+- Batch prelude: `approve(router, feeAmount)` + swap call. Rango picks the DEX/router.
+- Rango-NO_ROUTE returns `30002` (the 20004 error is retired for this flow).
+- `amountOutMin` on the swap ensures adverse price moves revert the whole batch atomically — the operator absorbs the failed-tx gas cost, the user pays nothing. Bounded per-attempt loss.
+
+**Estimator math (inverse-quote-with-slippage-padding)**
+
+For swap-fee paths we need to know how much of the user's token to charge to receive a target amount of `mainFeeToken`. Rango's `/basic/quote` is exact-in only, so:
+
+1. Compute the native gas cost with 15% markup → convert to `mainFeeToken` via forward quote (native → mainFeeToken).
+2. Inverse quote: `mainFeeToken → user's fee token`, amount = the target. Rango returns "how much user token that target is worth at mid-price".
+3. Scale up by `2 × slippage` (default 1% × 2 = 2%). Rounds up to the next base unit.
+4. Charge the user the scaled amount; the actual on-chain swap uses `amountOutMin` = the target so adverse moves revert atomically.
+
+Heuristic assumes `quote(A→B)` and `quote(B→A)` are near-reciprocal. Holds for deep pairs (USDT ↔ ETH, USDT ↔ major ERC-20s), diverges for illiquid ones — but the 15% base markup + 2× slippage swallows most drift.
+
+**What breaks (documented, not fixed)**
+
+- **Fee-on-transfer tokens** (e.g., SafeMoon-style): input arrives at router less than nominal → `amountOutMin` fails → batch reverts atomically. Operator eats failed-tx gas. Graceful.
+- **USDT-style transferFrom blacklists**: if the operator or treasury is blacklisted on a token, swap reverts. Bounded per-token failure; other tokens unaffected.
+- **Rebasing / silent-true `transferFrom` tokens**: same class as blacklists — router swap fails, batch reverts. No fund loss.
+
+**Removed fields from `chains.json` for EVM chains** (upgraders take note):
+
+The old per-EVM-chain `tokens: {SYMBOL: {address, decimals}}` map is gone. Decimals now come from RPC on-first-sight and are cached. Solana chains still use the old shape (whitelist-drop for Solana is a follow-up card).
+
 ### EVM EIP-712 and EIP-7702 details
 
 **EIP-712 batch signature** — the user signs typed-data with the domain `GaslessDelegate v1` and a `Batch` type containing a nonce + a list of operations. The signature authorizes the operator to execute these operations on the user's behalf. The backend verifies against the user's EOA address.
@@ -623,7 +670,7 @@ The backend uses stable numeric error codes. Each one is family-agnostic; the sa
 | `20001` | 400 | Chain not supported |
 | `20002` | 502/503 | RPC unreachable or contract call reverted at RPC (also returned when a delegated EOA's `GaslessDelegate.nonce()` read fails — retry with backoff) |
 | `20003` | 400 | No deployed delegate contract for the chain |
-| `20004` | 400 | Fee token not found in chain config |
+| `20004` | 400 | Fee token not found in chain config — **EVM: retired for per-request use** (the token whitelist was dropped; any address is accepted, with unaccepted tokens routed through swap-fee-path). Still fires on Solana for unrecognized mints, and on EVM only for chain-level misconfiguration (fires at boot, not per request) |
 | `20005` | 502 | Chain gas estimation failed |
 | `30001` | 502 | Rango request failed |
 | `30002` | 422 | Rango has no route for the requested swap |
@@ -636,7 +683,8 @@ The backend uses stable numeric error codes. Each one is family-agnostic; the sa
 | `40006` | 400 | Invalid EIP-7702 authorization (mismatched address/chainId/signature OR `authorization.nonce` does not match the user's current EOA `eth_getTransactionCount` at submit time — fetch via `provider.getTransactionCount(userAddress, 'latest')` immediately before signing to avoid races) |
 | `40007` | 409 | Request was already submitted |
 | `40008` | 422 | Solana transaction exceeds 1232-byte wire limit |
-| `40009` | 422 | User's fee-token balance is below the quoted fee at submit time (user moved tokens out between estimate and submit) |
+| `40009` | 422 | User's fee-token balance is below the quoted fee at submit time (user moved tokens out between estimate and submit). For native-fee-token flows, the balance check requires `feeAmount + sum(op.value)`, so watch out for ops that transfer native value out of the same batch |
+| `40010` | 400 | Fee-token address does not respond to a standard `ERC20.decimals()` call — either not a contract or not ERC-20-compliant. Pass either the native sentinel (`0xeeee…eeee`) or a valid ERC-20 address |
 | `50001` | 502 | Generic broadcast failure (legacy — Solana now uses 50005) |
 | `50002` | 504 | Transaction not mined within the relayer's wait window |
 | `50003` | 502 | Transaction mined but reverted on-chain |

@@ -124,20 +124,27 @@ export async function bootBackend(extraEnv: Record<string, string>): Promise<{ a
   return { app, http, postgres, redis };
 }
 
-export async function ensureUserHasNativeAndToken(env: E2EEnv, token: string, _minTokenWei: bigint): Promise<void> {
+export async function ensureUserHasNativeAndToken(env: E2EEnv, token: string, minTokenWei: bigint): Promise<void> {
   const provider = new JsonRpcProvider(env.rpcUrl);
-  const erc20 = new Contract(
-    token,
-    ['function balanceOf(address) view returns (uint256)'],
-    provider,
-  );
-  const balance: bigint = await erc20.balanceOf(env.userWallet.address);
-  if (balance === 0n) {
-    throw new Error(`user ${env.userWallet.address} has zero balance of ${token}`);
-  }
-  const operatorBalance = await provider.getBalance(env.operatorWallet.address);
-  if (operatorBalance < parseUnits('0.0005', 'ether')) {
-    throw new Error(`operator ${env.operatorWallet.address} needs at least 0.0005 BNB to broadcast; has ${operatorBalance}`);
+  try {
+    const erc20 = new Contract(
+      token,
+      ['function balanceOf(address) view returns (uint256)'],
+      provider,
+    );
+    const balance: bigint = await erc20.balanceOf(env.userWallet.address);
+    if (balance < minTokenWei) {
+      throw new Error(
+        `user ${env.userWallet.address} needs at least ${minTokenWei} base units of ${token}; has ${balance}. ` +
+        `Fund the wallet or lower the minimum to continue.`,
+      );
+    }
+    const operatorBalance = await provider.getBalance(env.operatorWallet.address);
+    if (operatorBalance < parseUnits('0.0005', 'ether')) {
+      throw new Error(`operator ${env.operatorWallet.address} needs at least 0.0005 native to broadcast; has ${operatorBalance}`);
+    }
+  } finally {
+    provider.destroy();
   }
 }
 
