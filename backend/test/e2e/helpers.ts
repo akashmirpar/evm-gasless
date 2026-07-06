@@ -202,11 +202,23 @@ function rpcsForChain(chainId: number, fallback: string): string[] {
   return PUBLIC_RPC_DEFAULTS[chainId] ?? [fallback];
 }
 
-async function nonceAcrossRpcs(userAddress: string, rpcUrls: string[]): Promise<bigint[]> {
+function delegatePointsAt(code: string, expectedDelegate: string): boolean {
+  if (!code || code === '0x') return false;
+  const lc = code.toLowerCase();
+  if (!lc.startsWith('0xef0100')) return false;
+  const target = '0x' + lc.slice(8);
+  return target === expectedDelegate.toLowerCase();
+}
+
+async function nonceAcrossRpcs(userAddress: string, expectedDelegate: string, rpcUrls: string[]): Promise<bigint[]> {
   const results = await Promise.allSettled(
     rpcUrls.map(async (url) => {
       const p = new JsonRpcProvider(url);
       try {
+        const code = await p.getCode(userAddress);
+        if (code === '0x' || code === '0x0' || code === '' || !delegatePointsAt(code, expectedDelegate)) {
+          return 0n;
+        }
         const c = new Contract(userAddress, DELEGATE_NONCE_ABI, p);
         return BigInt(await c.nonce());
       } finally {
@@ -215,6 +227,29 @@ async function nonceAcrossRpcs(userAddress: string, rpcUrls: string[]): Promise<
     }),
   );
   return results.flatMap((r) => (r.status === 'fulfilled' ? [r.value] : []));
+}
+
+export async function signTypedDataForBatch(
+  env: E2EEnv,
+  ops: Array<{ to: string; value: string; data: string }>,
+  atomicGroupStart: number,
+  nonce: string,
+): Promise<string> {
+  const domain = { name: 'GaslessDelegate', version: '1', chainId: env.chainId, verifyingContract: env.userWallet.address };
+  const types = {
+    Operation: [
+      { name: 'to', type: 'address' },
+      { name: 'value', type: 'uint256' },
+      { name: 'data', type: 'bytes' },
+    ],
+    Batch: [
+      { name: 'operations', type: 'Operation[]' },
+      { name: 'atomicGroupStart', type: 'uint256' },
+      { name: 'nonce', type: 'uint256' },
+    ],
+  };
+  const value = { operations: ops, atomicGroupStart, nonce };
+  return env.userWallet.signTypedData(domain, types, value);
 }
 
 /**
@@ -227,7 +262,7 @@ async function nonceAcrossRpcs(userAddress: string, rpcUrls: string[]): Promise<
 export async function waitForStableNonce(env: E2EEnv, maxAttempts = 30): Promise<bigint> {
   const rpcs = rpcsForChain(env.chainId, env.rpcUrl);
   for (let i = 0; i < maxAttempts; i++) {
-    const values = await nonceAcrossRpcs(env.userWallet.address, rpcs);
+    const values = await nonceAcrossRpcs(env.userWallet.address, env.delegateContractAddress, rpcs);
     if (values.length > 0 && values.every((v) => v === values[0])) {
       return values[0];
     }

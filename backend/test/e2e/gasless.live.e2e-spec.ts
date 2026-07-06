@@ -9,6 +9,7 @@ import {
   pollUntilTerminal,
   readLiveE2EEnv,
   signAuthorization,
+  signTypedDataForBatch,
   waitForStableNonce,
 } from './helpers';
 
@@ -147,25 +148,3 @@ describeIfLive('gasless e2e against a running backend instance', () => {
   }, 300_000);
 });
 
-async function signTypedDataForBatch(
-  env: LiveE2EEnv,
-  ops: Array<{ to: string; value: string; data: string }>,
-  atomicGroupStart: number,
-  nonce: string,
-): Promise<string> {
-  const domain = { name: 'GaslessDelegate', version: '1', chainId: env.chainId, verifyingContract: env.userWallet.address };
-  const types = {
-    Operation: [
-      { name: 'to', type: 'address' },
-      { name: 'value', type: 'uint256' },
-      { name: 'data', type: 'bytes' },
-    ],
-    Batch: [
-      { name: 'operations', type: 'Operation[]' },
-      { name: 'atomicGroupStart', type: 'uint256' },
-      { name: 'nonce', type: 'uint256' },
-    ],
-  };
-  const value = { operations: ops, atomicGroupStart, nonce };
-  return env.userWallet.signTypedData(domain, types, value);
-}

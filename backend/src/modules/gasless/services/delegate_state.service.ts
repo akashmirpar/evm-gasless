@@ -23,8 +23,9 @@ export class DelegateStateService {
    */
   async readNonce(chainId: number, userAddress: string): Promise<bigint> {
     const cfg = this.chainConfig.get(chainId);
+    const expectedDelegate = this.chainConfig.requireDelegateAddress(chainId);
     const results = await Promise.allSettled(
-      cfg.rpcUrls.map((url) => this.readNonceFrom(url, userAddress, chainId)),
+      cfg.rpcUrls.map((url) => this.readNonceFrom(url, userAddress, chainId, expectedDelegate)),
     );
     let max = 0n;
     let anySucceeded = false;
@@ -37,7 +38,7 @@ export class DelegateStateService {
     if (!anySucceeded) {
       return this.rpc.withFallback(chainId, async (provider) => {
         const code = await provider.getCode(userAddress);
-        if (isFreshEoa(code)) return 0n;
+        if (!isDelegatedToUs(code, expectedDelegate)) return 0n;
         const contract = new Contract(userAddress, DELEGATE_NONCE_ABI, provider);
         try {
           return BigInt(await contract.nonce());
@@ -46,7 +47,7 @@ export class DelegateStateService {
             {
               code: ErrorCodes.CHAIN_RPC_UNAVAILABLE,
               httpCode: 502,
-              message: `GaslessDelegate nonce read failed for ${userAddress} on chain ${chainId}. Address has non-empty code (${code.slice(0, 20)}…) but nonce() call reverted — likely an RPC issue or the EOA is delegated to a different contract.`,
+              message: `GaslessDelegate nonce read failed for ${userAddress} on chain ${chainId}. Address is delegated to our contract but nonce() call reverted — likely a transient RPC issue.`,
               service: 'DelegateState',
             },
             err,
@@ -57,11 +58,11 @@ export class DelegateStateService {
     return max;
   }
 
-  private async readNonceFrom(rpcUrl: string, userAddress: string, chainId: number): Promise<bigint> {
+  private async readNonceFrom(rpcUrl: string, userAddress: string, chainId: number, expectedDelegate: string): Promise<bigint> {
     const provider = this.rpc.providerFor(chainId, rpcUrl);
     try {
       const code = await provider.getCode(userAddress);
-      if (isFreshEoa(code)) return 0n;
+      if (!isDelegatedToUs(code, expectedDelegate)) return 0n;
       const contract = new Contract(userAddress, DELEGATE_NONCE_ABI, provider);
       const n = await contract.nonce();
       return BigInt(n);
@@ -71,7 +72,9 @@ export class DelegateStateService {
   }
 }
 
-function isFreshEoa(code: string): boolean {
-  const c = code.toLowerCase();
-  return c === '0x' || c === '0x0' || c === '';
+function isDelegatedToUs(code: string, expectedDelegate: string): boolean {
+  if (!code || code === '0x' || code === '0x0') return false;
+  const lc = code.toLowerCase();
+  if (!lc.startsWith('0xef0100') || lc.length < 48) return false;
+  return '0x' + lc.slice(8) === expectedDelegate.toLowerCase();
 }

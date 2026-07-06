@@ -6,9 +6,14 @@ class FakeProvider {
   destroy(): void {}
 }
 
+const OUR_DELEGATE = '0x7AF705BEA2Aa1F1cB4ffB18cbB94B26Bba343a87';
+
 function makeService(codeMap: Record<string, string>, nonceMap: Record<string, bigint | Error>): DelegateStateService {
   const rpcs = ['https://rpc.a', 'https://rpc.b'];
-  const chainConfig = { get: () => ({ rpcUrls: rpcs }) } as never;
+  const chainConfig = {
+    get: () => ({ rpcUrls: rpcs }),
+    requireDelegateAddress: () => OUR_DELEGATE,
+  } as never;
   const provider = new FakeProvider(codeMap, nonceMap);
   const rpc = {
     providerFor: () => provider as never,
@@ -45,17 +50,25 @@ describe('DelegateStateService.readNonce — fresh-EOA regression (M7 follow-up)
     await expect(svc.readNonce(56, USER)).resolves.toBe(0n);
   });
 
-  it('returns nonce when address has EIP-7702 delegation code', async () => {
+  it('returns nonce when address is delegated to OUR delegate', async () => {
     const svc = makeService(
-      { [USER.toLowerCase()]: '0xef01001234567890123456789012345678901234567890' },
+      { [USER.toLowerCase()]: '0xef0100' + OUR_DELEGATE.slice(2).toLowerCase() },
       { [USER.toLowerCase()]: 5n },
     );
     await expect(svc.readNonce(56, USER)).resolves.toBe(5n);
   });
 
-  it('throws typed CHAIN_RPC_UNAVAILABLE (not GASLESS_INVALID_REQUEST) when code exists but nonce() reverts', async () => {
+  it('returns 0n when address is delegated to a DIFFERENT contract (auth submit will overwrite)', async () => {
     const svc = makeService(
-      { [USER.toLowerCase()]: '0xef01001234567890123456789012345678901234567890' },
+      { [USER.toLowerCase()]: '0xef010063c0c19a282a1b52b07dd5a65b58948a07dae32b' },
+      {},
+    );
+    await expect(svc.readNonce(56, USER)).resolves.toBe(0n);
+  });
+
+  it('throws typed CHAIN_RPC_UNAVAILABLE when delegated to us but nonce() reverts', async () => {
+    const svc = makeService(
+      { [USER.toLowerCase()]: '0xef0100' + OUR_DELEGATE.slice(2).toLowerCase() },
       { [USER.toLowerCase()]: new Error('call reverted') },
     );
     await expect(svc.readNonce(56, USER)).rejects.toMatchObject({
