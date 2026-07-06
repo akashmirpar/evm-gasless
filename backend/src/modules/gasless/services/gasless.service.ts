@@ -1,9 +1,9 @@
 import { Injectable } from '@nestjs/common';
-import { Signature, verifyTypedData } from 'ethers';
+import { Contract, Signature, verifyTypedData } from 'ethers';
 import { v4 as uuidv4 } from 'uuid';
 
 import { PlutonException } from '../../../common/errors';
-import { ChainConfigService } from '../../../core/chain_config/chain_config.service';
+import { ChainConfigService, isNativeSentinel } from '../../../core/chain_config/chain_config.service';
 import { IContext } from '../../../core/context/context';
 import { RpcService } from '../../../core/rpc/rpc.service';
 import { RelayerService } from '../../relayer/relayer.service';
@@ -135,6 +135,14 @@ export class GaslessService {
       });
     }
 
+    await this.assertUserBalanceCoversFee(
+      cached.chainId,
+      cached.userAddress,
+      cached.feeTokenAddress,
+      BigInt(cached.feeAmount),
+      cached.operations,
+    );
+
     const existing = await this.relayer.findByRequestId(ctx, requestId);
     if (existing) {
       throw PlutonException(GaslessErrors.AlreadySubmitted, { requestId });
@@ -163,6 +171,39 @@ export class GaslessService {
     const entity = await this.relayer.findByRequestId(ctx, requestId);
     if (!entity) throw PlutonException(GaslessErrors.RequestNotFound);
     return this.mapStatus(entity);
+  }
+
+  private async assertUserBalanceCoversFee(
+    chainId: number,
+    userAddress: string,
+    feeTokenAddress: string,
+    feeAmount: bigint,
+    operations: Array<{ value: string }>,
+  ): Promise<void> {
+    const isNative = isNativeSentinel(feeTokenAddress);
+    let sumOpValue = 0n;
+    if (isNative) {
+      for (const op of operations) {
+        sumOpValue += BigInt(op.value || '0');
+      }
+    }
+    const required = feeAmount + sumOpValue;
+    const balance = await this.rpc.withFallback(chainId, async (provider) => {
+      if (isNative) return BigInt(await provider.getBalance(userAddress, 'latest'));
+      const erc20 = new Contract(feeTokenAddress, ['function balanceOf(address) view returns (uint256)'], provider);
+      return BigInt(await erc20.balanceOf(userAddress));
+    });
+    if (balance < required) {
+      throw PlutonException(GaslessErrors.InsufficientFeeBalance, {
+        userAddress,
+        feeTokenAddress,
+        required: required.toString(),
+        actual: balance.toString(),
+        native: isNative,
+        feeAmount: feeAmount.toString(),
+        opValueSum: sumOpValue.toString(),
+      });
+    }
   }
 
   private mapStatus(entity: TransactionRequestEntity): StatusResponseDto {

@@ -13,6 +13,7 @@ import { ChainConfigModule } from './core/chain_config/chain_config.module';
 import { AppDataSource, buildDataSourceOptions } from './core/database/data-source';
 import { HealthModule } from './core/health/health.module';
 import { RpcModule } from './core/rpc/rpc.module';
+import { TokenMetadataModule } from './core/token_metadata/token_metadata.module';
 import { GaslessModule } from './modules/gasless/gasless.module';
 import { SolanaGaslessModule } from './modules/gasless-solana/solana_gasless.module';
 import { RangoModule } from './modules/rango/rango.module';
@@ -50,6 +51,7 @@ import { RelayerSolanaModule } from './modules/relayer-solana/relayer-solana.mod
     EventEmitterModule.forRoot(),
     ChainConfigModule,
     RpcModule,
+    TokenMetadataModule,
     HealthModule,
     RangoModule,
     RelayerModule,

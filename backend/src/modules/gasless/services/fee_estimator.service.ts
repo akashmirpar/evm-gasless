@@ -2,9 +2,9 @@ import { Injectable, Logger } from '@nestjs/common';
 import BigNumber from 'bignumber.js';
 
 import { PlutonException } from '../../../common/errors';
-import { ErrorCodes } from '../../../common/errors/codes';
-import { ChainConfigService } from '../../../core/chain_config/chain_config.service';
+import { ChainConfigService, isNativeSentinel, NATIVE_TOKEN_SENTINEL } from '../../../core/chain_config/chain_config.service';
 import { RpcService } from '../../../core/rpc/rpc.service';
+import { TokenMetadataService } from '../../../core/token_metadata/token_metadata.service';
 import { RangoClient } from '../../rango/rango.client';
 import { GaslessErrors } from '../gasless.errors';
 import { UserOpDto } from '../dto/estimate.dto';
@@ -17,6 +17,14 @@ export interface FeeEstimate {
   nativeFeeAmount: BigNumber;
   swapRoute?: { inputToken: string; outputToken: string; outputAmount: BigNumber };
   acceptedFeeTokenAddress: string;
+  isNativeFeeToken: boolean;
+}
+
+interface RangoTokenDescriptor {
+  chainName: string;
+  address: string | null;
+  symbol: string;
+  decimals: number;
 }
 
 @Injectable()
@@ -29,6 +37,7 @@ export class FeeEstimatorService {
     private readonly chainConfig: ChainConfigService,
     private readonly rpc: RpcService,
     private readonly rango: RangoClient,
+    private readonly tokenMetadata: TokenMetadataService,
   ) {
     this.baseFeeMarkupPercent = Number(process.env.GASLESS_BASE_FEE_MARKUP_PERCENT ?? '15');
     this.defaultGasUnits = BigInt(process.env.GASLESS_DEFAULT_GAS_UNITS ?? '1500000');
@@ -50,34 +59,50 @@ export class FeeEstimatorService {
       .dividedBy(100)
       .integerValue(BigNumber.ROUND_CEIL);
 
-    const feeTokenLower = feeTokenAddress.toLowerCase();
-    const accepted = cfg.acceptedFeeTokenAddresses.includes(feeTokenLower);
+    const isNative = isNativeSentinel(feeTokenAddress);
+    const feeTokenLowerOrSentinel = isNative ? NATIVE_TOKEN_SENTINEL : feeTokenAddress.toLowerCase();
+    const accepted = !isNative && cfg.acceptedFeeTokenAddresses.includes(feeTokenLowerOrSentinel);
 
+    // Path 1: accepted ERC-20 fee token (USDT/USDC/etc). Direct-accept: convert
+    // the native gas cost into the fee token via a forward Rango quote.
     if (accepted) {
-      const result = await this.convertNativeToAccepted(chainId, cfg, feeTokenLower, nativeFeeWei);
-      return { ...result, gasUnits, nativeFeeAmount: nativeFeeWei, acceptedFeeToken: true, acceptedFeeTokenAddress: feeTokenLower };
+      const acceptedToken = await this.rangoTokenFor(chainId, cfg, feeTokenLowerOrSentinel);
+      const nativeToken = this.rangoNativeToken(cfg);
+      const quote = await this.rango.quote({ from: nativeToken, to: acceptedToken, amount: nativeFeeWei.toFixed() });
+      return {
+        feeTokenAddress: feeTokenLowerOrSentinel,
+        feeAmountInFeeToken: quote.outputAmount,
+        acceptedFeeToken: true,
+        gasUnits,
+        nativeFeeAmount: nativeFeeWei,
+        acceptedFeeTokenAddress: feeTokenLowerOrSentinel,
+        isNativeFeeToken: false,
+      };
     }
 
-    const acceptedAddress = cfg.acceptedFeeTokenAddresses[0];
-    if (!acceptedAddress) {
-      throw PlutonException(GaslessErrors.FeeTokenNotAcceptedAndNoRoute, { reason: 'no accepted fee token configured for chain' });
-    }
+    // Paths 2 & 3: user pays in an unaccepted fee token — either native
+    // (sentinel) OR an arbitrary ERC-20. We swap it into mainFeeToken on the
+    // treasury via Rango's `/basic/swap` (batch builder consumes that tx).
+    // Inverse-quote pattern for exact-out sizing.
+    const acceptedTarget = cfg.mainFeeTokenAddress;
+    const acceptedTargetToken = await this.rangoTokenFor(chainId, cfg, acceptedTarget);
+    const nativeToken = this.rangoNativeToken(cfg);
+    const nativeToAccepted = await this.rango.quote({ from: nativeToken, to: acceptedTargetToken, amount: nativeFeeWei.toFixed() });
+    const feeAmountInAccepted = nativeToAccepted.outputAmount;
 
-    const acceptedResult = await this.convertNativeToAccepted(chainId, cfg, acceptedAddress, nativeFeeWei);
-    const feeAmountInAccepted = acceptedResult.feeAmountInFeeToken;
+    const inputToken: RangoTokenDescriptor = isNative
+      ? nativeToken
+      : await this.rangoTokenFor(chainId, cfg, feeTokenLowerOrSentinel);
 
-    // We want: "what is feeAmountInAccepted of the accepted token worth in the user's fee token?"
-    // Rango's quote interprets `amount` as INPUT-side units, so we invert the direction.
-    // The actual on-chain swap goes user→accepted; the inverse quote here just prices the conversion.
     const inverseQuote = await this.rango.quote({
-      from: this.tokenOf(cfg, acceptedAddress),
-      to: this.tokenOf(cfg, feeTokenLower),
+      from: acceptedTargetToken,
+      to: inputToken,
       amount: feeAmountInAccepted.toFixed(),
     });
     if (inverseQuote.outputAmount.isZero()) {
       throw PlutonException(GaslessErrors.FeeTokenNotAcceptedAndNoRoute, { reason: 'inverse quote returned zero output' });
     }
-    // Buffer for the actual swap (user→accepted) slippage. Round-trip slippage doubles the configured one-side slippage.
+
     const slippagePct = Number(process.env.GASLESS_RANGO_SLIPPAGE ?? '0.5') * 2;
     const feeAmountInFeeToken = inverseQuote.outputAmount
       .multipliedBy(100 + slippagePct)
@@ -85,28 +110,15 @@ export class FeeEstimatorService {
       .integerValue(BigNumber.ROUND_CEIL);
 
     return {
-      feeTokenAddress: feeTokenLower,
+      feeTokenAddress: feeTokenLowerOrSentinel,
       feeAmountInFeeToken,
       acceptedFeeToken: false,
       gasUnits,
       nativeFeeAmount: nativeFeeWei,
-      swapRoute: { inputToken: feeTokenLower, outputToken: acceptedAddress, outputAmount: feeAmountInAccepted },
-      acceptedFeeTokenAddress: acceptedAddress,
+      swapRoute: { inputToken: feeTokenLowerOrSentinel, outputToken: acceptedTarget, outputAmount: feeAmountInAccepted },
+      acceptedFeeTokenAddress: acceptedTarget,
+      isNativeFeeToken: isNative,
     };
-  }
-
-  private async convertNativeToAccepted(
-    chainId: number,
-    cfg: ReturnType<ChainConfigService['get']>,
-    acceptedAddress: string,
-    nativeFeeWei: BigNumber,
-  ): Promise<{ feeTokenAddress: string; feeAmountInFeeToken: BigNumber }> {
-    const quote = await this.rango.quote({
-      from: { chainName: cfg.rangoChainName, address: null, symbol: cfg.nativeSymbol, decimals: cfg.nativeDecimals },
-      to: this.tokenOf(cfg, acceptedAddress),
-      amount: nativeFeeWei.toFixed(),
-    });
-    return { feeTokenAddress: acceptedAddress, feeAmountInFeeToken: quote.outputAmount };
   }
 
   private async estimateGasUnits(chainId: number, userAddress: string, ops: UserOpDto[]): Promise<bigint> {
@@ -133,18 +145,17 @@ export class FeeEstimatorService {
     }
   }
 
-  private tokenOf(cfg: ReturnType<ChainConfigService['get']>, addressLower: string) {
-    const t = cfg.tokens.find((x) => x.address === addressLower);
-    if (!t) {
-      throw PlutonException(
-        {
-          code: ErrorCodes.CHAIN_TOKEN_NOT_FOUND,
-          httpCode: 400,
-          message: `Token ${addressLower} not configured on chain ${cfg.chainId}`,
-          service: 'FeeEstimator',
-        },
-      );
-    }
-    return { chainName: cfg.rangoChainName, address: t.address, symbol: t.symbol, decimals: t.decimals };
+  private rangoNativeToken(cfg: ReturnType<ChainConfigService['get']>): RangoTokenDescriptor {
+    return { chainName: cfg.rangoChainName, address: null, symbol: cfg.nativeSymbol, decimals: cfg.nativeDecimals };
+  }
+
+  private async rangoTokenFor(
+    chainId: number,
+    cfg: ReturnType<ChainConfigService['get']>,
+    addressLower: string,
+  ): Promise<RangoTokenDescriptor> {
+    const decimals = await this.tokenMetadata.getDecimals(chainId, addressLower);
+    const symbol = await this.tokenMetadata.getSymbolBestEffort(chainId, addressLower);
+    return { chainName: cfg.rangoChainName, address: addressLower, symbol, decimals };
   }
 }

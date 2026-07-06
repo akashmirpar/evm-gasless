@@ -44,6 +44,15 @@ export const GaslessErrors = {
     message: 'Gasless transaction request was already submitted',
     service: 'Gasless',
   },
+  FeeTokenUnreadable: {
+    code: ErrorCodes.GASLESS_FEE_TOKEN_UNREADABLE,
+    httpCode: 400,
+    message:
+      'The fee-token address does not respond to a standard ERC-20 decimals() call. ' +
+      'Either the address is not a contract, or the contract is not ERC-20-compliant. ' +
+      'Pass either the native sentinel (0xeeee…eeee) or a valid ERC-20 fee token.',
+    service: 'Gasless',
+  },
   InsufficientFeeBalance: {
     code: ErrorCodes.GASLESS_INSUFFICIENT_FEE_BALANCE,
     httpCode: 422,
