@@ -136,7 +136,7 @@ export class FeeEstimatorService {
       throw PlutonException(GaslessErrors.FeeTokenNotAcceptedAndNoRoute, { reason: 'inverse quote returned zero output' });
     }
 
-    const slippagePct = readPositiveNumber(process.env.GASLESS_RANGO_SLIPPAGE, 0.5, 'GASLESS_RANGO_SLIPPAGE') * 2;
+    const slippagePct = readPositiveNumber(process.env.GASLESS_RANGO_SLIPPAGE, 2.0, 'GASLESS_RANGO_SLIPPAGE') * 2;
     const feeAmountInFeeToken = inverseQuote.outputAmount
       .multipliedBy(100 + slippagePct)
       .dividedBy(100)
