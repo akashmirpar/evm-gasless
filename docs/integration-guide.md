@@ -414,6 +414,33 @@ The swap-fee path appends Rango/Jupiter swap instructions on top of the user's i
 
 When you hit `40008`, the response body's `message` field lists the four options that actually help — switching to a directly-accepted fee token is almost always the right one.
 
+### Solana unresolved scenarios and use conditions
+
+Two configurations exceed Solana's 1232-byte wire limit for reasons intrinsic to the tx format, not to our backend. Neither is a bug we can fix without changes to Rango's route selection or a protocol change to Solana. Use conditions below are what actually works reliably today (verified 2026-07-08 e2e).
+
+**1. Combined swap-fee + swap-intent.** User pays fee in a non-accepted token *and* the intent itself is a same-chain or cross-chain swap. Rango returns a swap message for the intent, and the backend appends a separate Rango swap for the fee — two swap prologues, two ALT sets, two CU budgets. Even after all our dedupe and ALT compression, this combination overshoots ~1232 bytes.
+
+- **Fails with:** `40008 GASLESS_TX_TOO_LARGE` at `POST /transactions` (create step), before any signature is collected. No funds are spent.
+- **Workarounds (in order of preference):**
+  - Switch the fee to a directly-accepted token (add to `GASLESS_ACCEPTED_FEE_TOKENS` — e.g. add USDC or the xStock the user already holds). This is the recommended fix — it takes the fee-side swap out of the tx entirely.
+  - Pay the fee in native SOL (`feeTokenAddress = 11111111111111111111111111111111`). One SystemProgram.transfer is ~150 bytes vs ~300–500 for a swap.
+  - Split the user's intent into two separate gasless txs.
+- **Use condition (works):** either the intent OR the fee involves a swap, not both.
+
+**2. Heavier xStock (xTSLA/xAAPL/xNVDA) amounts through the Mayan bridge.** For a direct-accepted xStock fee + xStock→USDT@BSC bridge intent, Rango's route selection depends on the bridge amount. At small amounts (~0.008 xTSLA and below) Rango often picks Relay (~800-byte serialized msg) — the whole gasless tx lands under 1232 bytes. At larger amounts (~0.02 xTSLA and above) Rango's route optimizer prefers Mayan and larger routes that already consume ~1050+ bytes; adding our fee prelude pushes total wire size past 1232.
+
+- **Fails with:** `40008 GASLESS_TX_TOO_LARGE` at create, same as case (1). No funds spent.
+- **Route selection is not deterministic** — the same amount can pick Relay this minute and Mayan next minute depending on liquidity. So even a "known-good" amount can occasionally fail. The safe operating band is where Rango consistently picks the shorter route.
+- **Use conditions (works):**
+  - Bridge amount ≤ ~0.008 xTSLA (≈ $3.20 at $400 xTSLA) — verified reliable.
+  - Same guidance for xAAPL/xNVDA at proportionally-scaled amounts (~$3–4 USD equivalent).
+- **Use conditions (fails):** bridge amount ≥ ~0.02 xTSLA (≈ $8+). Wallet team's attempts 1–2 on 2026-07-08 at ≥ 0.02 xTSLA hit this. Documented as a Rango route-selection intrinsic, not a backend bug.
+- **Workarounds:**
+  - Split large amounts into multiple sub-0.008 xTSLA bridges (each its own gasless tx).
+  - Fall back to a non-gasless flow (user signs and pays their own SOL fee) for large bridges — no 1232-byte limit applies to the user's own fee-paying tx because it doesn't carry our fee prelude.
+
+**Not on this list = works.** Direct-accepted-fee + simple SPL/SOL transfer, direct-accepted-fee + same-chain Jupiter swap, direct-accepted-fee + small-amount bridge, swap-fee + simple transfer — all verified working. The two rows above are the *only* known configurations that hit the wire limit as of 2026-07-08.
+
 ### Solana fee-token behavior — what's accepted directly vs swapped
 
 The accepted-fee-token list is configured per-cluster via `GASLESS_ACCEPTED_FEE_TOKENS` env var. The default on Solana mainnet (`chainId: -100`) is:

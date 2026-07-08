@@ -54,7 +54,7 @@ export class BatchBuilderService {
         amount: estimate.feeAmountInFeeToken.toFixed(),
         userAddress,
         recipientAddress: cfg.treasuryAddress,
-        slippage: Number(process.env.GASLESS_RANGO_SLIPPAGE ?? '2.0'),
+        slippage: Number(process.env.GASLESS_RANGO_SLIPPAGE ?? '5.0'),
       });
 
       if (!swap.evmTransaction) {
