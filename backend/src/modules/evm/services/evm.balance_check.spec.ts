@@ -1,9 +1,9 @@
-import { GaslessService } from './gasless.service';
+import { EvmService } from './evm.service';
 import { NATIVE_TOKEN_SENTINEL } from '../../../core/chain_config/chain_config.service';
 
 type BalanceMap = { native: bigint; erc20: bigint };
 
-function makeService(balances: BalanceMap): GaslessService {
+function makeService(balances: BalanceMap): EvmService {
   const rpc = {
     withFallback: jest.fn(async (_id: number, fn: (p: unknown) => Promise<unknown>) => {
       const provider = {
@@ -16,13 +16,13 @@ function makeService(balances: BalanceMap): GaslessService {
       return fn(provider as never);
     }),
   } as never;
-  return new GaslessService(
+  return new EvmService(
     {} as never, {} as never, {} as never, {} as never, {} as never, {} as never, {} as never,
     rpc,
   );
 }
 
-function callAssert(svc: GaslessService, args: {
+function callAssert(svc: EvmService, args: {
   feeTokenAddress: string;
   feeAmount: bigint;
   operations: Array<{ value: string }>;
@@ -40,7 +40,7 @@ function callAssert(svc: GaslessService, args: {
   }).assertUserBalanceCoversFee(42161, '0xuser', args.feeTokenAddress, args.feeAmount, args.operations, args.atomicGroupStart);
 }
 
-describe('GaslessService.assertUserBalanceCoversFee — RIN-113 fix', () => {
+describe('EvmService.assertUserBalanceCoversFee — RIN-113 fix', () => {
   afterEach(() => jest.restoreAllMocks());
 
   describe('native fee token — post-fix must NOT double-count', () => {

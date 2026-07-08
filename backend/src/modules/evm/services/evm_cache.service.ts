@@ -18,7 +18,7 @@ export interface CachedRequest {
 }
 
 @Injectable()
-export class GaslessCacheService {
+export class EvmCacheService {
   private readonly ttlMs: number;
 
   constructor(@Inject(CACHE_MANAGER) private readonly cache: Cache) {

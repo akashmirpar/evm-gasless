@@ -10,24 +10,24 @@ import { RelayerService } from '../../relayer/relayer.service';
 import { TransactionRequestEntity } from '../../relayer/domain/entity/transaction_request.entity';
 import { CreateTransactionRequestDto, CreateTransactionResponseDto } from '../dto/create_transaction.dto';
 import { EstimateRequestDto, EstimateResponseDto } from '../dto/estimate.dto';
-import { StatusResponseDto } from '../dto/status.dto';
+import { StatusResponseDto } from '../../../common/dto/status.dto';
 import { SubmitTransactionRequestDto, SubmitTransactionResponseDto } from '../dto/submit.dto';
-import { GaslessErrors } from '../gasless.errors';
+import { GaslessErrors } from '../../../common/errors/gasless.errors';
 import { BatchBuilderService } from './batch_builder.service';
 import { BatchHashService } from './batch_hash.service';
 import { DelegateStateService } from './delegate_state.service';
 import { FeeEstimatorService } from './fee_estimator.service';
-import { GaslessCacheService } from './gasless_cache.service';
+import { EvmCacheService } from './evm_cache.service';
 
 @Injectable()
-export class GaslessService {
+export class EvmService {
   constructor(
     private readonly chainConfig: ChainConfigService,
     private readonly feeEstimator: FeeEstimatorService,
     private readonly batchBuilder: BatchBuilderService,
     private readonly batchHash: BatchHashService,
     private readonly delegateState: DelegateStateService,
-    private readonly cache: GaslessCacheService,
+    private readonly cache: EvmCacheService,
     private readonly relayer: RelayerService,
     private readonly rpc: RpcService,
   ) {}

@@ -5,7 +5,7 @@ import { Contract } from 'ethers';
 
 import { PlutonException } from '../../common/errors';
 import { ChainConfigService, isNativeSentinel } from '../chain_config/chain_config.service';
-import { GaslessErrors } from '../../modules/gasless/gasless.errors';
+import { GaslessErrors } from '../../common/errors/gasless.errors';
 import { NetworkType } from '../../common/utils/network_type';
 import { RpcService } from '../rpc/rpc.service';
 

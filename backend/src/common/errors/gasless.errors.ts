@@ -1,5 +1,5 @@
-import { ErrorCodes } from '../../common/errors/codes';
-import { ErrorInfo } from '../../common/errors/error_info';
+import { ErrorCodes } from './codes';
+import { ErrorInfo } from './error_info';
 
 export const GaslessErrors = {
   InvalidRequest: {

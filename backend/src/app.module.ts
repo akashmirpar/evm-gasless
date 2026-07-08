@@ -14,8 +14,8 @@ import { AppDataSource, buildDataSourceOptions } from './core/database/data-sour
 import { HealthModule } from './core/health/health.module';
 import { RpcModule } from './core/rpc/rpc.module';
 import { TokenMetadataModule } from './core/token_metadata/token_metadata.module';
-import { GaslessModule } from './modules/gasless/gasless.module';
-import { SolanaGaslessModule } from './modules/gasless-solana/solana_gasless.module';
+import { EvmModule } from './modules/evm/evm.module';
+import { SolanaModule } from './modules/solana/solana.module';
 import { RangoModule } from './modules/rango/rango.module';
 import { RelayerModule } from './modules/relayer/relayer.module';
 import { RelayerSolanaModule } from './modules/relayer-solana/relayer-solana.module';
@@ -55,8 +55,8 @@ import { RelayerSolanaModule } from './modules/relayer-solana/relayer-solana.mod
     HealthModule,
     RangoModule,
     RelayerModule,
-    GaslessModule,
-    SolanaGaslessModule,
+    EvmModule,
+    SolanaModule,
     RelayerSolanaModule,
   ],
   providers: [

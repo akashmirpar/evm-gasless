@@ -4,13 +4,13 @@ import { CtxParam } from '../../core/context/ctx.decorator';
 import { RequestContext } from '../../core/context/context';
 import { CreateTransactionRequestDto, CreateTransactionResponseDto } from './dto/create_transaction.dto';
 import { EstimateRequestDto, EstimateResponseDto } from './dto/estimate.dto';
-import { StatusResponseDto } from './dto/status.dto';
+import { StatusResponseDto } from '../../common/dto/status.dto';
 import { SubmitTransactionRequestDto, SubmitTransactionResponseDto } from './dto/submit.dto';
-import { GaslessService } from './services/gasless.service';
+import { EvmService } from './services/evm.service';
 
 @Controller('gasless/transactions')
-export class GaslessController {
-  constructor(private readonly gasless: GaslessService) {}
+export class EvmController {
+  constructor(private readonly gasless: EvmService) {}
 
   @Post('estimate')
   estimate(@Body() body: EstimateRequestDto): Promise<EstimateResponseDto> {

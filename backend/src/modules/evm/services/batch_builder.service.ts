@@ -5,7 +5,7 @@ import { PlutonException } from '../../../common/errors';
 import { ChainConfigService, isNativeSentinel, NATIVE_TOKEN_SENTINEL } from '../../../core/chain_config/chain_config.service';
 import { TokenMetadataService } from '../../../core/token_metadata/token_metadata.service';
 import { RangoClient } from '../../rango/rango.client';
-import { GaslessErrors } from '../gasless.errors';
+import { GaslessErrors } from '../../../common/errors/gasless.errors';
 import { UserOpDto } from '../dto/estimate.dto';
 import { OperationInput } from '../domain/operation';
 import { FeeEstimate } from './fee_estimator.service';

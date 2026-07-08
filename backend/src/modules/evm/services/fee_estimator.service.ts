@@ -7,7 +7,7 @@ import { ChainConfigService, isNativeSentinel, NATIVE_TOKEN_SENTINEL } from '../
 import { RpcService } from '../../../core/rpc/rpc.service';
 import { TokenMetadataService } from '../../../core/token_metadata/token_metadata.service';
 import { RangoClient } from '../../rango/rango.client';
-import { GaslessErrors } from '../gasless.errors';
+import { GaslessErrors } from '../../../common/errors/gasless.errors';
 import { UserOpDto } from '../dto/estimate.dto';
 
 function readPositiveNumber(envValue: string | undefined, fallback: number, name: string): number {

@@ -4,26 +4,26 @@ import { TypeOrmModule } from '@nestjs/typeorm';
 import { TransitionLogEntity } from '../../common/transition_log.entity';
 import { TransactionRequestEntity } from '../relayer/domain/entity/transaction_request.entity';
 import { RelayerService } from '../relayer/relayer.service';
-import { GaslessController } from './gasless.controller';
+import { EvmController } from './evm.controller';
 import { BatchBuilderService } from './services/batch_builder.service';
 import { BatchHashService } from './services/batch_hash.service';
 import { DelegateStateService } from './services/delegate_state.service';
 import { FeeEstimatorService } from './services/fee_estimator.service';
-import { GaslessCacheService } from './services/gasless_cache.service';
-import { GaslessService } from './services/gasless.service';
+import { EvmCacheService } from './services/evm_cache.service';
+import { EvmService } from './services/evm.service';
 
 @Module({
   imports: [TypeOrmModule.forFeature([TransactionRequestEntity, TransitionLogEntity])],
-  controllers: [GaslessController],
+  controllers: [EvmController],
   providers: [
-    GaslessService,
+    EvmService,
     FeeEstimatorService,
     BatchBuilderService,
     BatchHashService,
     DelegateStateService,
-    GaslessCacheService,
+    EvmCacheService,
     RelayerService,
   ],
-  exports: [GaslessService, RelayerService],
+  exports: [EvmService, RelayerService],
 })
-export class GaslessModule {}
+export class EvmModule {}
