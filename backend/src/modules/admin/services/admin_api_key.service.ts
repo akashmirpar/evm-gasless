@@ -1,4 +1,4 @@
-import { randomBytes } from 'crypto';
+import { randomUUID } from 'crypto';
 
 import { Injectable, Logger } from '@nestjs/common';
 import { InjectDataSource } from '@nestjs/typeorm';
@@ -9,8 +9,6 @@ import { ApiKeyEntity } from '../../auth/domain/entity/api_key.entity';
 import { AuthService } from '../../auth/services/auth.service';
 import { ApiKeyAuditEntity, ApiKeyAuditOutcome } from '../domain/entity/api_key_audit.entity';
 import type { AdminContext } from './admin_context';
-
-const KEY_PREFIX = 'gk_live_';
 
 /**
  * Manages integrator API keys. All mutations run inside a single DB
@@ -156,7 +154,6 @@ export class AdminApiKeyService {
   }
 }
 
-/** 32-byte URL-safe token → 43-char base64url + human-readable prefix. */
 function generatePlaintextKey(): string {
-  return `${KEY_PREFIX}${randomBytes(32).toString('base64url')}`;
+  return randomUUID();
 }

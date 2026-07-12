@@ -1,13 +1,12 @@
 import 'reflect-metadata';
 
-import { randomBytes } from 'crypto';
+import { randomUUID } from 'crypto';
 
 import { AppDataSource } from '../core/database/data-source';
 import { AdminEntity } from '../modules/admin/domain/entity/admin.entity';
 import { AdminAuditEntity, AdminAuditOutcome } from '../modules/admin/domain/entity/admin_audit.entity';
 
 const NAME_FLAG = '--name';
-const KEY_PREFIX = 'ga_live_';
 
 /**
  * One-shot bootstrap for the very first admin. Refuses to run if any active
@@ -40,7 +39,7 @@ async function main(): Promise<void> {
       throw new Error(`admin name "${name}" already exists (id=${clash.id}) — pick another with --name`);
     }
 
-    const plaintextKey = `${KEY_PREFIX}${randomBytes(32).toString('base64url')}`;
+    const plaintextKey = randomUUID();
 
     const admin = await AppDataSource.transaction(async (manager) => {
       const saved = await manager.getRepository(AdminEntity).save({

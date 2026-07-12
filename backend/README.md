@@ -22,7 +22,7 @@ src/
 
 ## Authentication
 
-Every route under `/gasless/*` requires an integrator API key on the `x-api-key` header. Every route under `/admin/*` requires an admin key on the `x-admin-key` header. Both surfaces share a per-IP failed-auth budget (5 hits / 1 s window) so a bad-key flood cannot amplify into one DB lookup per request.
+Every route under `/gasless/*` requires an integrator API key on the `x-api-key` header. Every route under `/admin/*` requires an admin key on the `x-admin-key` header. Keys are UUIDs. Both surfaces share a per-IP failed-auth budget (5 hits / 1 s window) so a bad-key flood cannot amplify into one DB lookup per request.
 
 Keys are stored plaintext with a unique index. On successful lookup, the row is cached in Redis for 5 minutes; mutations invalidate the cache immediately.
 

@@ -1,4 +1,4 @@
-import { randomBytes } from 'crypto';
+import { randomUUID } from 'crypto';
 
 import { Injectable } from '@nestjs/common';
 import { InjectDataSource } from '@nestjs/typeorm';
@@ -9,8 +9,6 @@ import { AdminEntity } from '../domain/entity/admin.entity';
 import { AdminAuditEntity, AdminAuditOutcome } from '../domain/entity/admin_audit.entity';
 import { AdminAuthService } from './admin_auth.service';
 import type { AdminContext } from './admin_context';
-
-const ADMIN_KEY_PREFIX = 'ga_live_';
 
 /**
  * Admin CRUD. Deactivating or deleting the last active admin with a key
@@ -149,5 +147,5 @@ export class AdminService {
 }
 
 function generateAdminKey(): string {
-  return `${ADMIN_KEY_PREFIX}${randomBytes(32).toString('base64url')}`;
+  return randomUUID();
 }

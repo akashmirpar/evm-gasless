@@ -1,5 +1,5 @@
 import { INestApplication } from '@nestjs/common';
-import { randomBytes } from 'crypto';
+import { randomBytes, randomUUID } from 'crypto';
 import { StartedTestContainer } from 'testcontainers';
 import supertest from 'supertest';
 
@@ -35,7 +35,7 @@ describe('auth e2e (real db + redis)', () => {
     redis = booted.redis;
 
     // Bootstrap admin directly (equivalent to `npm run seed:admin`).
-    adminKey = `ga_live_${randomBytes(24).toString('base64url')}`;
+    adminKey = randomUUID();
     if (!AppDataSource.isInitialized) await AppDataSource.initialize();
     // Wipe any state a prior test run left behind on the shared dev DB.
     // Order matters — audit rows FK back to admin / api_key.
@@ -66,7 +66,7 @@ describe('auth e2e (real db + redis)', () => {
       .set('x-admin-key', adminKey)
       .send({ clientName: 'acme', rateLimitRps: 10 });
     expect(res.status).toBe(201);
-    expect(res.body?.data?.key).toMatch(/^gk_live_/);
+    expect(res.body?.data?.key).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/);
     expect(res.body?.data?.isActive).toBe(true);
   });
 
@@ -105,7 +105,7 @@ describe('auth e2e (real db + redis)', () => {
   it('a random key is rejected as unauthorized', async () => {
     const res = await http
       .post('/gasless/transactions/estimate')
-      .set('x-api-key', 'gk_live_notarealkey')
+      .set('x-api-key', '00000000-0000-4000-8000-000000000000')
       .send({});
     expect(res.status).toBe(401);
   });
