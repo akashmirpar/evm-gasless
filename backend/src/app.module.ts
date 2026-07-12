@@ -14,6 +14,8 @@ import { AppDataSource, buildDataSourceOptions } from './core/database/data-sour
 import { HealthModule } from './core/health/health.module';
 import { RpcModule } from './core/rpc/rpc.module';
 import { TokenMetadataModule } from './core/token_metadata/token_metadata.module';
+import { AdminModule } from './modules/admin/admin.module';
+import { AuthModule } from './modules/auth/auth.module';
 import { EvmModule } from './modules/evm/evm.module';
 import { SolanaModule } from './modules/solana/solana.module';
 import { RangoModule } from './modules/rango/rango.module';
@@ -53,6 +55,8 @@ import { RelayerSolanaModule } from './modules/relayer-solana/relayer-solana.mod
     RpcModule,
     TokenMetadataModule,
     HealthModule,
+    AuthModule,
+    AdminModule,
     RangoModule,
     RelayerModule,
     EvmModule,

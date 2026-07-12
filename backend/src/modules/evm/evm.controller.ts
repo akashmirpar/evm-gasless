@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Param, Post } from '@nestjs/common';
+import { Body, Controller, Get, Param, Post, UseGuards } from '@nestjs/common';
 
 import { CtxParam } from '../../core/context/ctx.decorator';
 import { RequestContext } from '../../core/context/context';
@@ -7,8 +7,10 @@ import { EstimateRequestDto, EstimateResponseDto } from './dto/estimate.dto';
 import { StatusResponseDto } from '../../common/dto/status.dto';
 import { SubmitTransactionRequestDto, SubmitTransactionResponseDto } from './dto/submit.dto';
 import { EvmService } from './services/evm.service';
+import { ApiKeyGuard } from '../auth/interface/guards/api_key.guard';
 
 @Controller('gasless/transactions')
+@UseGuards(ApiKeyGuard)
 export class EvmController {
   constructor(private readonly gasless: EvmService) {}
 

@@ -23,7 +23,9 @@ function sanitizeUrlsInString(s: string): string {
     .replace(/(https?:\/\/[^\/\s)]+)\/[a-f0-9]{32,}/gi, '$1/<redacted>')
     .replace(/([?&](?:apiKey|api_key|auth|token|key)=)[^&\s)]+/gi, '$1<redacted>')
     .replace(/(\/v[23]\/)[a-f0-9]{32,}/gi, '$1<redacted>')
-    .replace(/(Bearer\s+)[A-Za-z0-9._\-]+/g, '$1<redacted>');
+    .replace(/(Bearer\s+)[A-Za-z0-9._\-]+/g, '$1<redacted>')
+    .replace(/\bg[ak]_live_[A-Za-z0-9_-]+/g, '<redacted>')
+    .replace(/((?:^|["'\s])x-(?:api|admin)-key["'\s:=]+)[^\s",}]+/gi, '$1<redacted>');
 }
 
 function serializeCause(cause: unknown): unknown {

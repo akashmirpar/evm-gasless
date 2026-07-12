@@ -18,7 +18,8 @@
     "typeorm": "ts-node -r tsconfig-paths/register ./node_modules/typeorm/cli.js -d ./src/core/database/data-source.ts",
     "migration:create": "npm run typeorm -- migration:create src/core/database/migrations/$npm_config_name",
     "migration:generate": "typeorm migration:generate -d dist/core/database/data-source.js",
-    "migration:run": "typeorm migration:run -d dist/core/database/data-source.js"
+    "migration:run": "typeorm migration:run -d dist/core/database/data-source.js",
+    "seed:admin": "ts-node -r tsconfig-paths/register src/scripts/seed_admin.ts"
   },
   "dependencies": {
     "@keyv/redis": "^5.1.6",

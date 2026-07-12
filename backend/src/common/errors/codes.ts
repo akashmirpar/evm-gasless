@@ -6,6 +6,7 @@
  *   3xxxx — rango client
  *   4xxxx — gasless flow (estimate, create, submit, status)
  *   5xxxx — relayer
+ *   6xxxx — auth (API key + admin)
  *   8xxxx — health
  *   9xxxx — system / framework
  */
@@ -40,6 +41,16 @@ export const ErrorCodes = {
   RELAYER_GAVE_UP: 50004,
   RELAYER_SOLANA_BROADCAST_REJECTED: 50005,
   RELAYER_SOLANA_MARKET_REJECTION: 50006,
+
+  AUTH_UNAUTHORIZED: 60001,
+  AUTH_FORBIDDEN: 60002,
+  AUTH_RATE_LIMITED: 60003,
+
+  ADMIN_API_KEY_NOT_FOUND: 61001,
+  ADMIN_CANNOT_DEACTIVATE_LAST_ADMIN: 61002,
+  ADMIN_KEY_ALREADY_EXISTS: 61003,
+  ADMIN_NOT_FOUND: 61004,
+  ADMIN_NAME_TAKEN: 61005,
 
   HEALTH_CHECK_FAILED: 80001,
 

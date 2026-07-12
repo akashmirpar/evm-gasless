@@ -20,6 +20,31 @@ src/
     └── gasless/           HTTP endpoints + fee estimator + batch builder
 ```
 
+## Authentication
+
+Every route under `/gasless/*` requires an integrator API key on the `x-api-key` header. Every route under `/admin/*` requires an admin key on the `x-admin-key` header. Both surfaces share a per-IP failed-auth budget (5 hits / 1 s window) so a bad-key flood cannot amplify into one DB lookup per request.
+
+Keys are stored plaintext with a unique index. On successful lookup, the row is cached in Redis for 5 minutes; mutations invalidate the cache immediately.
+
+### First-run bootstrap
+
+Right after `migration:run` you have zero admins and no way in. The included CLI mints exactly one:
+
+```sh
+npm run seed:admin -- --name root
+```
+
+It refuses to run if any active admin already exists. The plaintext key is printed once — store it. Use it against `POST /admin/admins` to create additional admins, or `POST /admin/api-keys` to mint integrator keys.
+
+Deactivating the last active admin with a key is refused (409 / `ADMIN_CANNOT_DEACTIVATE_LAST_ADMIN`) — this is what keeps operators from locking themselves out.
+
+### Admin endpoints
+
+- `GET /admin/admins`, `POST /admin/admins`, `PATCH /admin/admins/:id/active`, `POST /admin/admins/:id/rotate-key`, `DELETE /admin/admins/:id`
+- `GET /admin/api-keys`, `POST /admin/api-keys`, `PATCH /admin/api-keys/:id`, `PATCH /admin/api-keys/:id/active`, `DELETE /admin/api-keys/:id`
+
+Every mutation writes an `api_key_audit` or `admin_audit` row in the same transaction, tagged with the actor's admin id, IP, and user-agent.
+
 ## Endpoints
 
 All responses are wrapped in `{ "success": true, "data": <…> }` (or `{ "success": false, "error": { code, message, causes? } }` on failure).
