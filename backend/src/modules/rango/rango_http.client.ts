@@ -54,7 +54,10 @@ export class RangoHttpClient extends RangoClient {
     super();
     const baseUrl = (process.env.RANGO_API_URL ?? 'https://api.rango.exchange').replace(/\/$/, '');
     this.apiKey = (process.env.RANGO_API_KEY ?? '').trim();
-    this.http = axios.create({ baseURL: baseUrl, timeout: 15_000 });
+    // Rango's /basic/quote is intermittently slow (10-25s tail latencies
+    // observed 2026-07-11). Env-overridable; default 30s survives the
+    // typical p99 while still capping runaway hangs.
+    this.http = axios.create({ baseURL: baseUrl, timeout: Number(process.env.RANGO_HTTP_TIMEOUT_MS ?? '30000') });
   }
 
   async quote(req: RangoQuoteRequest): Promise<RangoQuoteResult> {
