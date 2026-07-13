@@ -2,6 +2,7 @@ import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 
 import { TransitionLogEntity } from '../../common/transition_log.entity';
+import { PricingModule } from '../../core/pricing';
 import { AuthModule } from '../auth/auth.module';
 import { TransactionRequestEntity } from '../relayer/domain/entity/transaction_request.entity';
 import { RelayerService } from '../relayer/relayer.service';
@@ -14,7 +15,7 @@ import { EvmCacheService } from './services/evm_cache.service';
 import { EvmService } from './services/evm.service';
 
 @Module({
-  imports: [TypeOrmModule.forFeature([TransactionRequestEntity, TransitionLogEntity]), AuthModule],
+  imports: [TypeOrmModule.forFeature([TransactionRequestEntity, TransitionLogEntity]), AuthModule, PricingModule],
   controllers: [EvmController],
   providers: [
     EvmService,
