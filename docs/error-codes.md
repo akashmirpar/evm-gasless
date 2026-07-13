@@ -46,6 +46,8 @@ A boot-time validator throws if two codes collide. Don't reuse numbers — pick 
 | `40005` | 400 | `GASLESS_INVALID_SIGNATURE` | The EIP-712 signature provided to `/submit` doesn't recover to `userAddress`. | Re-sign. Common causes: wrong domain (verifyingContract must be the user's EOA, not the delegate contract), tampered `operations`, wrong nonce. |
 | `40006` | 400 | `GASLESS_INVALID_AUTHORIZATION` | The EIP-7702 authorization tuple's `address` or `chainId` doesn't match the prepared batch, or its `signature` is malformed. | Re-sign the authorization with the correct `delegateContractAddress` and `chainId`. |
 | `40007` | 409 | `GASLESS_REQUEST_ALREADY_SUBMITTED` | `/submit` called twice for the same `requestId`. The first call already persisted a row. | Idempotent retry: just call `GET /:requestId` to read current status; don't resubmit. |
+| `40014` | 503 | `GASLESS_PRICE_UNAVAILABLE` | No fresh price for the native asset or the fee token — the Rango `/meta` price blob is stale (older than `GASLESS_PRICE_MAX_AGE_SECONDS`) or missing the token. Only reachable in `fixed` fee mode or with the no-loss check on. | Transient — retry with backoff. Operator can switch `GASLESS_FEE_MODE=bps` as a stopgap (bps mode needs no price feed). |
+| `40015` | 422 | `GASLESS_FEE_BELOW_MAX_NETWORK_COST` | The computed fee is below the no-loss ceiling (`simulatedCost × (1 + GASLESS_PRIORITY_HEADROOM_BPS)`), priced into the settlement token. Fires only when `GASLESS_NO_LOSS_CHECK` is on. | No — the quote is rejected as unprofitable. Operator must raise the token's profit/markup or the user must pick another fee token. |
 
 ## Relayer (5xxxx)
 

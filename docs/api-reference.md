@@ -55,7 +55,9 @@ Stateless. Returns a fee quote in the user's chosen fee token.
     "feeTokenAddress": "0x…",
     "feeAmount": "1500000",
     "acceptedFeeToken": true,
-    "swapRoute": null
+    "swapRoute": null,
+    "feeUsd": "0.0489",
+    "estimatedNativeCostUsd": "0.0425"
   }
 }
 ```
@@ -70,6 +72,9 @@ Stateless. Returns a fee quote in the user's chosen fee token.
     "outputAmount": "1500000"
   }
   ```
+- `feeUsd` — best-effort USD value of `feeAmount`, as a decimal string. Derived from the Rango `/meta` price feed.
+- `estimatedNativeCostUsd` — best-effort USD value of the raw network cost the operator expects to pay, as a decimal string.
+- Both fiat fields are **best-effort**: they are omitted from the response (never an error) when a price for the relevant token is missing from the feed.
 
 Likely error codes: `CHAIN_NOT_SUPPORTED (20001)`, `CHAIN_TOKEN_NOT_FOUND (20004)`, `GASLESS_FEE_TOKEN_NOT_ACCEPTED_AND_NO_ROUTE (40002)`, `RANGO_REQUEST_FAILED (30001)`, `RANGO_NO_ROUTE (30002)`.
 
