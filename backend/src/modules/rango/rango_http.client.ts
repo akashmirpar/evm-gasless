@@ -7,12 +7,23 @@ import { RangoClient } from './rango.client';
 import { RangoErrors } from './rango.errors';
 import {
   RangoEvmCall,
+  RangoMetaToken,
   RangoQuoteRequest,
   RangoQuoteResult,
   RangoSolanaCall,
   RangoSwapRequest,
   RangoSwapResult,
 } from './rango.types';
+
+interface RangoMetaResponse {
+  tokens?: Array<{
+    blockchain?: string;
+    symbol?: string;
+    address?: string | null;
+    decimals?: number;
+    usdPrice?: number | null;
+  }>;
+}
 
 interface RangoBasicQuoteResponse {
   requestId: string;
@@ -124,6 +135,27 @@ export class RangoHttpClient extends RangoClient {
     }
 
     throw PlutonException(RangoErrors.InvalidResponse, data);
+  }
+
+  async meta(): Promise<RangoMetaToken[]> {
+    const data = await this.call<RangoMetaResponse>('/basic/meta', {});
+    const tokens = data.tokens ?? [];
+    return tokens
+      .filter(
+        (t) =>
+          typeof t.blockchain === 'string' &&
+          typeof t.symbol === 'string' &&
+          Number.isInteger(t.decimals) &&
+          (t.decimals as number) >= 0 &&
+          (t.decimals as number) <= 36,
+      )
+      .map((t) => ({
+        chainName: t.blockchain as string,
+        address: t.address ?? null,
+        symbol: t.symbol as string,
+        decimals: t.decimals as number,
+        usdPrice: typeof t.usdPrice === 'number' ? t.usdPrice : null,
+      }));
   }
 
   private token(t: { chainName: string; address: string | null; symbol: string }): string {
