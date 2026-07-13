@@ -38,9 +38,12 @@ import { RelayerSolanaModule } from './modules/relayer-solana/relayer-solana.mod
       useFactory: () => {
         const host = process.env.REDIS_HOST ?? '127.0.0.1';
         const port = Number(process.env.REDIS_PORT ?? 6379);
+        // Optional ACL username: embed it in the URL (redis://user:pass@host) so we
+        // authenticate as the per-service ACL user. Unset => default user (unchanged).
+        const username = process.env.REDIS_USERNAME ?? '';
         const password = process.env.REDIS_PASSWORD;
         const ttlSeconds = Number(process.env.REDIS_DEFAULT_TTL_SECONDS ?? 300);
-        const auth = password ? `:${encodeURIComponent(password)}@` : '';
+        const auth = password ? `${encodeURIComponent(username)}:${encodeURIComponent(password)}@` : '';
         const url = `redis://${auth}${host}:${port}`;
         const keyvRedis = new KeyvRedis({
           url,

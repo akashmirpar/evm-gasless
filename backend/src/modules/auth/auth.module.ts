@@ -20,6 +20,9 @@ import { RATE_LIMIT_REDIS, RateLimiterService } from './services/rate_limiter.se
         const client = new Redis({
           host: process.env.REDIS_HOST ?? '127.0.0.1',
           port: Number(process.env.REDIS_PORT ?? 6379),
+          // Optional ACL username: when the shared Redis enforces per-service ACL
+          // users, authenticate as that user (AUTH <user> <pass>). Unset => default.
+          username: process.env.REDIS_USERNAME || undefined,
           password: process.env.REDIS_PASSWORD || undefined,
           connectTimeout: 1_500,
           maxRetriesPerRequest: 1,
