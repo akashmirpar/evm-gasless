@@ -1,0 +1,28 @@
+# Build context is the repo root; keep it lean and free of secrets.
+
+# Git
+.git
+.gitignore
+.gitmodules
+
+# Node build artifacts / deps (reinstalled inside the image)
+**/node_modules
+**/dist
+**/coverage
+**/*.tsbuildinfo
+
+# Env / secrets — never ship these into the build context
+**/.env
+**/.env.*
+
+# Tests, docs and unrelated top-level dirs not needed to build the backend
+backend/test
+docs
+code-review
+contract
+.github
+
+# Editor / OS cruft
+.idea
+.vscode
+.DS_Store

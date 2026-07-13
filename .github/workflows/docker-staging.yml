@@ -1,0 +1,58 @@
+name: docker-staging
+
+# Build and publish the gasless backend image on every push to `staging`.
+# Publishes two tags:
+#   - staging-<short-sha>  immutable, one per commit
+#   - staging-latest       moving pointer to the newest staging build
+on:
+  push:
+    branches: [staging]
+  workflow_dispatch:
+
+concurrency:
+  group: docker-staging-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  REGISTRY: ghcr.io
+  # ghcr paths must be lowercase; repository_owner (pluton-bridge) already is.
+  IMAGE_NAME: ${{ github.repository_owner }}/gasless
+
+jobs:
+  build-and-push:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Compute short SHA
+        id: vars
+        run: echo "sha=${GITHUB_SHA::7}" >> "$GITHUB_OUTPUT"
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: backend/Dockerfile
+          push: true
+          tags: |
+            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:staging-${{ steps.vars.outputs.sha }}
+            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:staging-latest
+          labels: |
+            org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
+            org.opencontainers.image.revision=${{ github.sha }}
+          cache-from: type=gha,scope=staging
+          cache-to: type=gha,mode=max,scope=staging
