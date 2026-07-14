@@ -46,7 +46,7 @@ The gasless backend exposes four HTTP endpoints per family. The shape is paralle
 | `POST /gasless/<family>/transactions/:requestId/submit` | "Here's the user's signature." Verifies, persists, returns the request status. |
 | `GET /gasless/<family>/transactions/:requestId` | "What happened?" — current status + tx hash + failure reason. |
 
-`<family>` is `evm` for EVM chains, `solana` for Solana clusters.
+**EVM** omits the family segment — its paths are `POST /gasless/transactions/estimate`, `POST /gasless/transactions`, `POST /gasless/transactions/:requestId/submit`, `GET /gasless/transactions/:requestId`. **Solana** uses the `solana` segment: `POST /gasless/solana/transactions/estimate`, etc. Every route requires an `x-api-key` header (integrator API key); missing/invalid keys return `60001`/`60002`/`60003`.
 
 ## Supported chains
 
@@ -481,7 +481,7 @@ When the swap-fee transaction (a Jupiter swap plus the user's intent) overflows 
 
 Both land **all-or-nothing** as a bundle. The prefund tx is signed server-side and never sent to you.
 
-**The user still signs exactly ONE transaction.** From the integrator's perspective the flow is unchanged — you collect a single Solana signature whether the request is served as a single tx or as the fallback bundle. The `bundleRung` and `userSignaturesRequired` fields on the estimate/create response tell you which path was chosen; today `userSignaturesRequired` is always `1`.
+**The user still signs exactly ONE transaction.** From the integrator's perspective the flow is unchanged — you collect a single Solana signature whether the request is served as a single tx or as the fallback bundle. The estimate/create response's `mode` field (`single` | `bundled`) tells you which path was chosen; the user-signable transaction is always the one returned in `unsignedTransactionBase64`. (A future two-signature path for intents that overflow even without the operator prefund is planned but not implemented — see the fee-model card.)
 
 > **Planned, not implemented:** a future two-signature path — splitting the swap from the intent for intents that overflow even without the prefund — is on the roadmap but **not built**. Integrators collect exactly one Solana signature today.
 
@@ -767,7 +767,7 @@ The backend uses stable numeric error codes. Each one is family-agnostic; the sa
 | --- | --- | --- |
 | `20001` | 400 | Chain not supported |
 | `20002` | 502/503 | RPC unreachable or contract call reverted at RPC (also returned when a delegated EOA's `GaslessDelegate.nonce()` read fails — retry with backoff) |
-| `20003` | 400 | No deployed delegate contract for the chain |
+| `20003` | 503 | No deployed delegate contract for the chain |
 | `20004` | 400 | Fee token not found in chain config — **EVM: retired for per-request use** (the token whitelist was dropped; any address is accepted, with unaccepted tokens routed through swap-fee-path). Still fires on Solana for unrecognized mints, and on EVM only for chain-level misconfiguration (fires at boot, not per request) |
 | `20005` | 502 | Chain gas estimation failed |
 | `30001` | 502 | Rango request failed |

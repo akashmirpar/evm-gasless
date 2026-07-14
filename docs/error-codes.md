@@ -12,6 +12,7 @@ Source of truth: [`backend/src/common/errors/codes.ts`](../backend/src/common/er
 | `3xxxx` | Rango client |
 | `4xxxx` | Gasless flow (estimate, create, submit, status) |
 | `5xxxx` | Relayer |
+| `6xxxx` | Auth (integrator API key + admin) |
 | `8xxxx` | Health |
 | `9xxxx` | System / framework |
 
@@ -25,7 +26,7 @@ A boot-time validator throws if two codes collide. Don't reuse numbers — pick 
 | `20002` | 503 | `CHAIN_RPC_UNAVAILABLE` | All configured RPCs for a chain failed. | Transient infra issue. Retry with backoff; if persistent, the backend's RPC config is broken. |
 | `20003` | 503 | `CHAIN_NO_DEPLOYED_CONTRACT` | The chain is supported but `GaslessDelegate` hasn't been deployed (no entry in `deployed.json` for this chainId). | Show "gasless not available on this chain yet". |
 | `20004` | 400 | `CHAIN_TOKEN_NOT_FOUND` | The `feeTokenAddress` isn't in `chains.json`'s token list for this chain. The backend needs decimal metadata to quote correctly. | Prompt user to pick a different fee token (one your UI lists from the chain's known tokens). |
-| `20005` | 500 | `CHAIN_GAS_ESTIMATION_FAILED` | RPC `eth_estimateGas` failed for all operator user ops. | Falls back internally to `GASLESS_DEFAULT_GAS_UNITS` — this code is rarely surfaced. If you see it, retry. |
+| `20005` | 502 | `CHAIN_GAS_ESTIMATION_FAILED` | RPC returned no usable gas price, or 0 total gas across all ops (an RPC anomaly). The estimator refuses to substitute a default here rather than silently under-quote. | Transient RPC issue — retry. |
 
 ## Rango (3xxxx)
 

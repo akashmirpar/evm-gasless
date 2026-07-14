@@ -68,7 +68,7 @@ This matters for integration: if a third party wants to provide a redundant subm
    - Builds the batch: prepends `[transfer]` or `[approve, swap]` to the user's ops.
    - Reads the user EOA's `nonce()` from chain (`max` across configured RPCs).
    - Returns `{ requestId, delegateContractAddress, operations, atomicGroupStart, nonce, digest, expiresAtSeconds }`.
-   - Stashes the prepared batch in Redis with a TTL (default 300s).
+   - Stashes the prepared batch in Redis with a TTL (default 90s).
 3. **Client signs locally**:
    - **EIP-712 signature** over `(operations, atomicGroupStart, nonce)` with `domain = { name: "GaslessDelegate", version: "1", chainId, verifyingContract: userAddress }`.
    - **EIP-7702 authorization tuple** over `(chainId, delegateContractAddress, EOA's tx count)` using the same EOA key.
@@ -94,7 +94,7 @@ The signature is a bearer token until the nonce is consumed: anyone holding the 
 
 | Location | Purpose | TTL |
 |----------|---------|-----|
-| Redis | Prepared-batch stash between `POST /transactions` and `POST /:id/submit`. | `GASLESS_CREATE_TTL_SECONDS`, default 300s. |
+| Redis | Prepared-batch stash between `POST /transactions` and `POST /:id/submit`. | `GASLESS_CREATE_TTL_SECONDS`, default 90s. |
 | Postgres `transaction_request` | Submitted requests, FSM status, retry counters, tx hash. | Permanent until manually pruned. |
 | Postgres `transition_log` | Append-only audit log of every status transition. Debug-only; never read by business logic. | Permanent. |
 | On-chain `GaslessDelegate.nonce` | Per-EOA nonce stored in the delegated EOA's storage. Increments on every successful `executeBatch` (whether atomic group succeeded or not). | On-chain forever. |
