@@ -73,10 +73,18 @@ export class PricingService {
     const native = await this.entry(chainId, NATIVE_TOKEN_SENTINEL);
     const feeToken = await this.entry(chainId, feeTokenAddressOrNative);
 
-    const nativeHuman = nativeBaseUnits.dividedBy(new BigNumber(10).pow(native.decimals));
-    const usdValue = nativeHuman.multipliedBy(native.usdPrice);
-    const feeHuman = usdValue.dividedBy(feeToken.usdPrice);
-    return feeHuman.multipliedBy(new BigNumber(10).pow(feeToken.decimals)).integerValue(BigNumber.ROUND_CEIL);
+    // Money-safety: stay in base units, never round through a human-unit
+    // intermediate, and round exactly ONCE — up, in the operator's favor.
+    //   feeBaseUnits = ceil( nativeBaseUnits · nativePriceUsd · 10^feeDec
+    //                        ────────────────────────────────────────────── )
+    //                        (        feePriceUsd · 10^nativeDec           )
+    // Decimals are intrinsic here (the two tokens have different base-unit
+    // scales); everything is kept as an exact rational until the final ceil.
+    const numerator = nativeBaseUnits
+      .multipliedBy(native.usdPrice)
+      .multipliedBy(new BigNumber(10).pow(feeToken.decimals));
+    const denominator = new BigNumber(feeToken.usdPrice).multipliedBy(new BigNumber(10).pow(native.decimals));
+    return numerator.dividedBy(denominator).integerValue(BigNumber.ROUND_CEIL);
   }
 
   /** USD value (human units) of a token amount given in base units. For fiat rendering. */
