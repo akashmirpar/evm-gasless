@@ -58,6 +58,8 @@ The gasless backend exposes four HTTP endpoints per family. The shape is paralle
 | -100 | solana | Solana mainnet | SOL | USDC, xTSLA, xNVDA, xAAPL |
 | -102 | solana | Solana devnet | SOL | USDC (test only) |
 
+> **Note:** the `GaslessDelegate` contract is only deployed where `deployed.json` has an entry (currently BSC `56` and Arbitrum `42161`). A create on a listed-but-undeployed chain (e.g. Base) returns `20003 CHAIN_NO_DEPLOYED_CONTRACT`.
+
 Solana cluster IDs are negative integers because Solana doesn't natively have a numeric chain ID — the negative space is a Pluton-side convention so the same `chainId` parameter can route both families.
 
 Add or change a chain by editing `gasless/chains/chains.json` and (for EVM) `gasless/chains/deployed.json` to record the deployed `GaslessDelegate` address. The backend reads both at boot.
@@ -566,12 +568,10 @@ interface EvmCreated {
   requestId: string;
   chainId: number;
   delegateContractAddress: string;
-  feePayer: string;
-  gaslessNonce: string;
+  nonce: string;
+  atomicGroupStart: number;
   operations: { to: string; value: string; data: string }[];
   digest: string;
-  feeAmount: string;
-  feeTokenAddress: string;
   expiresAtSeconds: number;
 }
 
@@ -639,7 +639,7 @@ async function signBatch(wallet: Wallet, prep: EvmCreated): Promise<string> {
     ],
   };
   const value = {
-    nonce: BigInt(prep.gaslessNonce),
+    nonce: BigInt(prep.nonce),
     operations: prep.operations.map((o) => ({
       to: o.to,
       value: BigInt(o.value),
@@ -722,7 +722,7 @@ The old per-EVM-chain `tokens: {SYMBOL: {address, decimals}}` map is gone. Decim
 
 Both signatures are required. The `nonce` for the authorization is the user's current EOA tx count from the chain — fetch it via `eth_getTransactionCount` immediately before signing to avoid races.
 
-The `GaslessDelegate` contract addresses per chain are recorded in the backend's `deployed.json`; you can query them via `GET /chains` if you don't want to hardcode.
+The `GaslessDelegate` contract addresses per chain are recorded in the backend's `deployed.json` (and in `chains.json`); read them from there.
 
 ---
 
@@ -831,7 +831,7 @@ If your wallet currently runs `RewriteAtaPayer` and `DedupeByteIdentical` on Ran
 - Remove your rewrite + dedup from your wallet codebase. After this, the prefund SOL flows through to ATA rents exactly as intended. Operator-side cost is identical to today.
 - **Don't remove your passes if the backend isn't on `db53d81` or later.** Without our prefund, you'd see the original "insufficient lamports 0, need 2039280" failure again.
 
-You can verify the backend version by hitting `GET /version` (returns commit hash) or by checking the broadcaster logs for the new prefund line (`[SolanaBatchBuilderService] prefunding user … with N lamports …`).
+You can verify the deployed backend by checking the broadcaster logs for the new prefund line (`[SolanaBatchBuilderService] prefunding user … with N lamports …`).
 
 **Behavior change 2026-06-30 — fees on bridges with ATA-creates are now higher (the correct amount):**
 

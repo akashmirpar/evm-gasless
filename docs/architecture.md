@@ -5,7 +5,7 @@ The system supports two networks today, with structurally similar API shape but 
 - **EVM** (BSC, Base, Arbitrum) — uses EIP-7702 to delegate the user's EOA to a `GaslessDelegate` Solidity contract; the user signs an EIP-712 batch; the operator submits a type-4 transaction.
 - **Solana** — uses Solana's native multi-sig: the operator is the transaction's fee payer (covers SOL); the user co-signs as authority over their own token accounts. No delegation contract.
 
-Most of this doc is written EVM-first because that's the more involved path. The Solana-specific bits are flagged in the relevant sections, and [solana.md](solana.md) is the dedicated Solana reference.
+Most of this doc is written EVM-first because that's the more involved path. The Solana-specific bits are flagged in the relevant sections, and [solana-architecture.md](solana-architecture.md) is the dedicated Solana reference.
 
 ## What the system does in one paragraph
 
@@ -151,4 +151,4 @@ Falls back to a hardcoded `SOLANA_SOL_USD_PRICE × SOLANA_FEE_TOKEN_USD_PRICE` c
 
 Solana requests live in their own `solana_transaction_request` table, with a parallel FSM (`PENDING → BROADCASTING → BROADCASTED → MINED_SUCCESS|MINED_FAILED|FAILED_PERMANENT`). The relayer poller (`SolanaRelayerJob`) is a sibling of the EVM poller — same shape, separate cron registration. The two pollers never race because they read different tables and the operator's Solana keypair and EVM key are different artifacts.
 
-See [solana.md](solana.md) for the API shapes, env vars, and an end-to-end integration sample.
+See [solana-architecture.md](solana-architecture.md) and [integration-guide.md](integration-guide.md) for the API shapes, env vars, and an end-to-end integration sample.

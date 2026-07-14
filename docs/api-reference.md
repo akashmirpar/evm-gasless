@@ -2,7 +2,7 @@
 
 Base URL: whatever your backend deployment exposes. Default in development: `http://localhost:3578`. The OpenAPI/Swagger view is at `/swagger`.
 
-This doc covers the **EVM** endpoints (`/gasless/transactions/*`). For Solana support (`/gasless/solana/transactions/*`), see [solana.md](solana.md) — the shape is different enough that polymorphism would have been more confusing than helpful.
+This doc covers the **EVM** endpoints (`/gasless/transactions/*`). For Solana support (`/gasless/solana/transactions/*`), see [solana-architecture.md](solana-architecture.md) — the shape is different enough that polymorphism would have been more confusing than helpful.
 
 ## Response envelope
 
@@ -26,7 +26,7 @@ Multiple endpoints share these fields:
 |-------|------|-------|
 | `chainId` | `number` | EVM chain id. Must be a chain configured in `chains.json`. |
 | `userAddress` | `string` | The end-user's EOA. The delegated EOA that runs `GaslessDelegate`. Normalized to lowercase by the backend; clients can pass either case or with/without `0x`. |
-| `feeTokenAddress` | `string` | ERC-20 the user wants to pay the fee in. Either an address in `chains.json`'s token list, or `0xEeeeeEEee…eEEEE` for native (`NATIVE_TOKEN_SENTINEL`). |
+| `feeTokenAddress` | `string` | ERC-20 the user wants to pay the fee in. Any ERC-20 address (the EVM token whitelist was dropped — unaccepted tokens are routed through a swap), or `0xEeeeeEEee…eEEEE` for native (`NATIVE_TOKEN_SENTINEL`). |
 | `operations` | `UserOp[]` | The user's intent ops (atomic group). Each op: `{ chainId, to, value, data }`. `value` is a non-negative integer string (wei). `data` is `0x`-prefixed hex (can be `"0x"` for empty). |
 
 ## `POST /gasless/transactions/estimate`
@@ -72,11 +72,11 @@ Stateless. Returns a fee quote in the user's chosen fee token.
     "outputAmount": "1500000"
   }
   ```
-- `feeUsd` — best-effort USD value of `feeAmount`, as a decimal string. Derived from the Rango `/meta` price feed.
+- `feeUsd` — best-effort USD value of `feeAmount`, as a decimal string. Derived from the Rango `/basic/meta` price feed.
 - `estimatedNativeCostUsd` — best-effort USD value of the raw network cost the operator expects to pay, as a decimal string.
 - Both fiat fields are **best-effort**: they are omitted from the response (never an error) when a price for the relevant token is missing from the feed.
 
-Likely error codes: `CHAIN_NOT_SUPPORTED (20001)`, `CHAIN_TOKEN_NOT_FOUND (20004)`, `GASLESS_FEE_TOKEN_NOT_ACCEPTED_AND_NO_ROUTE (40002)`, `RANGO_REQUEST_FAILED (30001)`, `RANGO_NO_ROUTE (30002)`.
+Likely error codes: `CHAIN_NOT_SUPPORTED (20001)`, `GASLESS_FEE_TOKEN_NOT_ACCEPTED_AND_NO_ROUTE (40002)`, `GASLESS_FEE_BELOW_MAX_NETWORK_COST (40015)`, `GASLESS_PRICE_UNAVAILABLE (40014)`, `RANGO_REQUEST_FAILED (30001)`, `RANGO_NO_ROUTE (30002)`.
 
 ## `POST /gasless/transactions`
 
