@@ -1,6 +1,6 @@
 # Gasless Relayer — Integration Guide
 
-This document covers everything an integrator needs to wire the gasless backend into a wallet or dApp. Two transaction families are supported through the same shape of endpoints: **EVM** (BSC, Base, Arbitrum) and **Solana** (mainnet, devnet).
+This document covers everything an integrator needs to wire the gasless backend into a wallet or dApp. Two transaction families are supported through the same shape of endpoints: **EVM** — any EIP-7702 chain (BSC, Base, Arbitrum live today, more on request) — and **Solana** (mainnet, devnet).
 
 The goal: a user with **only** the asset they want to transact in — no native gas token — can sign one approval and have an operator pay all network fees. The operator collects a small spread in the user's preferred token as a fee.
 

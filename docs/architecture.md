@@ -1,8 +1,8 @@
 # Architecture
 
-The system supports two networks today, with structurally similar API shape but very different underlying primitives:
+The system supports two transaction families, with structurally similar API shape but very different underlying primitives. Any EIP-7702-capable EVM chain can be added by deploying `GaslessDelegate` and adding a `chains.json` entry — BSC, Base, and Arbitrum are configured today:
 
-- **EVM** (BSC, Base, Arbitrum) — uses EIP-7702 to delegate the user's EOA to a `GaslessDelegate` Solidity contract; the user signs an EIP-712 batch; the operator submits a type-4 transaction.
+- **EVM** (any EIP-7702 chain; BSC, Base, Arbitrum today) — uses EIP-7702 to delegate the user's EOA to a `GaslessDelegate` Solidity contract; the user signs an EIP-712 batch; the operator submits a type-4 transaction.
 - **Solana** — uses Solana's native multi-sig: the operator is the transaction's fee payer (covers SOL); the user co-signs as authority over their own token accounts. No delegation contract.
 
 Most of this doc is written EVM-first because that's the more involved path. The Solana-specific bits are flagged in the relevant sections, and [solana-architecture.md](solana-architecture.md) is the dedicated Solana reference.
@@ -16,7 +16,7 @@ A user wants to execute arbitrary EVM operations from their own EOA but doesn't 
 ```
  ┌──────────────────┐     ┌─────────────────────┐     ┌──────────────────────┐
  │  Client app /    │     │  Gasless backend    │     │  Chain               │
- │  Wallet UI       │     │  (NestJS)           │     │  (BSC/Base/Arbitrum) │
+ │  Wallet UI       │     │  (NestJS)           │     │  (any EVM chain)     │
  │                  │     │                     │     │                      │
  │  - holds user PK │     │  - quotes fee       │     │  - GaslessDelegate   │
  │  - signs EIP-712 │ ──► │  - builds batch     │ ──► │    deployed (used    │
