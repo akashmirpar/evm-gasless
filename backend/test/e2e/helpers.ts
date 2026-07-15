@@ -95,7 +95,20 @@ export async function pingBackend(baseUrl: string): Promise<boolean> {
 }
 
 export function httpFor(baseUrl: string): supertest.Agent {
-  return supertest(baseUrl);
+  const agent = supertest(baseUrl);
+  const apiKey = (process.env.E2E_API_KEY ?? '').trim();
+  if (!apiKey) return agent;
+  // The /gasless surface is guarded now — attach x-api-key to every request
+  // without touching each spec's call sites.
+  const verbs = new Set(['get', 'post', 'put', 'patch', 'delete']);
+  const attach = (method: string) => (path: string) =>
+    (agent as unknown as Record<string, (p: string) => supertest.Test>)[method](path).set('x-api-key', apiKey);
+  return new Proxy(agent, {
+    get(target, prop, receiver) {
+      if (typeof prop === 'string' && verbs.has(prop)) return attach(prop);
+      return Reflect.get(target, prop, receiver);
+    },
+  }) as supertest.Agent;
 }
 
 export async function bootBackend(extraEnv: Record<string, string>): Promise<{ app: INestApplication; http: supertest.Agent; postgres: StartedTestContainer; redis: StartedTestContainer }> {

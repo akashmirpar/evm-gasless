@@ -5,6 +5,7 @@ import { PlutonException } from '../../../common/errors';
 import { ErrorCodes } from '../../../common/errors/codes';
 import { ChainConfigService, isNativeSentinel, NATIVE_TOKEN_SENTINEL } from '../../../core/chain_config/chain_config.service';
 import { RpcService } from '../../../core/rpc/rpc.service';
+import { FeePolicyService } from '../../../core/pricing';
 import { TokenMetadataService } from '../../../core/token_metadata/token_metadata.service';
 import { RangoClient } from '../../rango/rango.client';
 import { GaslessErrors } from '../../../common/errors/gasless.errors';
@@ -41,6 +42,8 @@ export interface FeeEstimate {
   swapRoute?: { inputToken: string; outputToken: string; outputAmount: BigNumber };
   acceptedFeeTokenAddress: string;
   isNativeFeeToken: boolean;
+  feeUsd?: string;
+  estimatedNativeCostUsd?: string;
 }
 
 interface RangoTokenDescriptor {
@@ -61,6 +64,7 @@ export class FeeEstimatorService {
     private readonly rpc: RpcService,
     private readonly rango: RangoClient,
     private readonly tokenMetadata: TokenMetadataService,
+    private readonly feePolicy: FeePolicyService,
   ) {
     this.baseFeeMarkupPercent = readPositiveNumber(process.env.GASLESS_BASE_FEE_MARKUP_PERCENT, 15, 'GASLESS_BASE_FEE_MARKUP_PERCENT');
     this.defaultGasUnits = readPositiveBigInt(process.env.GASLESS_DEFAULT_GAS_UNITS, 1_500_000n, 'GASLESS_DEFAULT_GAS_UNITS');
@@ -96,20 +100,38 @@ export class FeeEstimatorService {
     const feeTokenLowerOrSentinel = isNative ? NATIVE_TOKEN_SENTINEL : feeTokenAddress.toLowerCase();
     const accepted = !isNative && cfg.acceptedFeeTokenAddresses.includes(feeTokenLowerOrSentinel);
 
-    // Path 1: accepted ERC-20 fee token (USDT/USDC/etc). Direct-accept: convert
-    // the native gas cost into the fee token via a forward Rango quote.
+    // Path 1: accepted ERC-20 fee token (USDT/USDC/etc). Direct-accept.
     if (accepted) {
       const acceptedToken = await this.rangoTokenFor(chainId, cfg, feeTokenLowerOrSentinel);
-      const nativeToken = this.rangoNativeToken(cfg);
-      const quote = await this.rango.quote({ from: nativeToken, to: acceptedToken, amount: nativeFeeWei.toFixed() });
+      // fixed mode: price the raw network cost into the fee token via the price
+      // feed and add the per-token profit. bps mode: convert the marked-up
+      // native cost via a forward Rango quote (unchanged behavior).
+      const fixed = await this.feePolicy.fixedSettlementAmount(
+        chainId,
+        feeTokenLowerOrSentinel,
+        acceptedToken.symbol,
+        acceptedToken.decimals,
+        nativeFeeWeiRaw,
+      );
+      let feeAmountInFeeToken: BigNumber;
+      if (fixed !== null) {
+        feeAmountInFeeToken = fixed;
+      } else {
+        const nativeToken = this.rangoNativeToken(cfg);
+        const quote = await this.rango.quote({ from: nativeToken, to: acceptedToken, amount: nativeFeeWei.toFixed() });
+        feeAmountInFeeToken = quote.outputAmount;
+      }
+      await this.feePolicy.assertCoversNetworkCost(chainId, feeTokenLowerOrSentinel, feeAmountInFeeToken, nativeFeeWeiRaw);
+      const fiat = await this.feePolicy.fiat(chainId, feeTokenLowerOrSentinel, feeAmountInFeeToken, NATIVE_TOKEN_SENTINEL, nativeFeeWeiRaw);
       return {
         feeTokenAddress: feeTokenLowerOrSentinel,
-        feeAmountInFeeToken: quote.outputAmount,
+        feeAmountInFeeToken,
         acceptedFeeToken: true,
         gasUnits,
         nativeFeeAmount: nativeFeeWei,
         acceptedFeeTokenAddress: feeTokenLowerOrSentinel,
         isNativeFeeToken: false,
+        ...fiat,
       };
     }
 
@@ -120,8 +142,25 @@ export class FeeEstimatorService {
     const acceptedTarget = cfg.mainFeeTokenAddress;
     const acceptedTargetToken = await this.rangoTokenFor(chainId, cfg, acceptedTarget);
     const nativeToken = this.rangoNativeToken(cfg);
-    const nativeToAccepted = await this.rango.quote({ from: nativeToken, to: acceptedTargetToken, amount: nativeFeeWei.toFixed() });
-    const feeAmountInAccepted = nativeToAccepted.outputAmount;
+
+    // Settlement target = mainFeeToken the treasury receives. fixed mode prices
+    // it from the feed + profit; bps mode forward-quotes the marked-up cost.
+    const fixedTarget = await this.feePolicy.fixedSettlementAmount(
+      chainId,
+      acceptedTarget,
+      acceptedTargetToken.symbol,
+      acceptedTargetToken.decimals,
+      nativeFeeWeiRaw,
+    );
+    let feeAmountInAccepted: BigNumber;
+    if (fixedTarget !== null) {
+      feeAmountInAccepted = fixedTarget;
+    } else {
+      const nativeToAccepted = await this.rango.quote({ from: nativeToken, to: acceptedTargetToken, amount: nativeFeeWei.toFixed() });
+      feeAmountInAccepted = nativeToAccepted.outputAmount;
+    }
+    // No-loss guard on the token the treasury actually settles in.
+    await this.feePolicy.assertCoversNetworkCost(chainId, acceptedTarget, feeAmountInAccepted, nativeFeeWeiRaw);
 
     const inputToken: RangoTokenDescriptor = isNative
       ? nativeToken
@@ -142,6 +181,8 @@ export class FeeEstimatorService {
       .dividedBy(100)
       .integerValue(BigNumber.ROUND_CEIL);
 
+    // feeUsd reflects what the user actually pays (in their input token).
+    const fiat = await this.feePolicy.fiat(chainId, feeTokenLowerOrSentinel, feeAmountInFeeToken, NATIVE_TOKEN_SENTINEL, nativeFeeWeiRaw);
     return {
       feeTokenAddress: feeTokenLowerOrSentinel,
       feeAmountInFeeToken,
@@ -151,6 +192,7 @@ export class FeeEstimatorService {
       swapRoute: { inputToken: feeTokenLowerOrSentinel, outputToken: acceptedTarget, outputAmount: feeAmountInAccepted },
       acceptedFeeTokenAddress: acceptedTarget,
       isNativeFeeToken: isNative,
+      ...fiat,
     };
   }
 

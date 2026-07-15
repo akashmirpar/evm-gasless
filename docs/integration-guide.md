@@ -1,6 +1,6 @@
 # Gasless Relayer — Integration Guide
 
-This document covers everything an integrator needs to wire the gasless backend into a wallet or dApp. Two transaction families are supported through the same shape of endpoints: **EVM** (BSC, Base, Arbitrum) and **Solana** (mainnet, devnet).
+This document covers everything an integrator needs to wire the gasless backend into a wallet or dApp. Two transaction families are supported through the same shape of endpoints: **EVM** — any EIP-7702 chain (BSC, Base, Arbitrum live today, more on request) — and **Solana** (mainnet, devnet).
 
 The goal: a user with **only** the asset they want to transact in — no native gas token — can sign one approval and have an operator pay all network fees. The operator collects a small spread in the user's preferred token as a fee.
 
@@ -12,20 +12,26 @@ This guide assumes Node.js / TypeScript on the integrator side. The same flow ap
 
 1. [Architecture overview](#architecture-overview)
 2. [Endpoint reference](#endpoint-reference)
-3. [Solana integration](#solana-integration)
+3. [Fee model](#fee-model)
+   1. [Fee modes — `bps` vs `fixed`](#fee-modes--bps-vs-fixed)
+   2. [Per-token profit (`fixed` mode)](#per-token-profit-fixed-mode)
+   3. [No-loss ceiling](#no-loss-ceiling)
+   4. [Fiat fields on the estimate response](#fiat-fields-on-the-estimate-response)
+4. [Solana integration](#solana-integration)
    1. [The flow end-to-end](#solana-flow-end-to-end)
    2. [Bridge intents — what we handle for you](#bridge-intents--what-we-handle-for-you)
    3. [Overriding the SOL prefund](#overriding-the-sol-prefund)
    4. [Code sample](#solana-code-sample)
    5. [Signing format](#solana-signing-format)
    6. [Address Lookup Tables](#solana-address-lookup-tables)
-4. [EVM integration](#evm-integration)
+   7. [Size fallback — single tx vs Jito bundle](#size-fallback--single-tx-vs-jito-bundle)
+5. [EVM integration](#evm-integration)
    1. [The flow end-to-end](#evm-flow-end-to-end)
    2. [Code sample](#evm-code-sample)
    3. [EIP-712 + EIP-7702 details](#evm-eip-712-and-eip-7702-details)
-5. [Status polling](#status-polling)
-6. [Error codes](#error-codes)
-7. [Rollout notes for existing integrations](#rollout-notes-for-existing-integrations)
+6. [Status polling](#status-polling)
+7. [Error codes](#error-codes)
+8. [Rollout notes for existing integrations](#rollout-notes-for-existing-integrations)
 
 ---
 
@@ -40,7 +46,7 @@ The gasless backend exposes four HTTP endpoints per family. The shape is paralle
 | `POST /gasless/<family>/transactions/:requestId/submit` | "Here's the user's signature." Verifies, persists, returns the request status. |
 | `GET /gasless/<family>/transactions/:requestId` | "What happened?" — current status + tx hash + failure reason. |
 
-`<family>` is `evm` for EVM chains, `solana` for Solana clusters.
+**EVM** omits the family segment — its paths are `POST /gasless/transactions/estimate`, `POST /gasless/transactions`, `POST /gasless/transactions/:requestId/submit`, `GET /gasless/transactions/:requestId`. **Solana** uses the `solana` segment: `POST /gasless/solana/transactions/estimate`, etc. Every route requires an `x-api-key` header (integrator API key); missing/invalid keys return `60001`/`60002`/`60003`.
 
 ## Supported chains
 
@@ -51,6 +57,8 @@ The gasless backend exposes four HTTP endpoints per family. The shape is paralle
 | 42161 | evm | Arbitrum One | ETH | USDT |
 | -100 | solana | Solana mainnet | SOL | USDC, xTSLA, xNVDA, xAAPL |
 | -102 | solana | Solana devnet | SOL | USDC (test only) |
+
+> **Note:** the `GaslessDelegate` contract is only deployed where `deployed.json` has an entry (currently BSC `56` and Arbitrum `42161`). A create on a listed-but-undeployed chain (e.g. Base) returns `20003 CHAIN_NO_DEPLOYED_CONTRACT`.
 
 Solana cluster IDs are negative integers because Solana doesn't natively have a numeric chain ID — the negative space is a Pluton-side convention so the same `chainId` parameter can route both families.
 
@@ -163,6 +171,67 @@ Returns `{ requestId, status }` where `status` is the FSM state. **On Solana, su
 ```
 
 `txHash` is the Solana signature for `-100` / `-102` chains and the EVM tx hash otherwise. `failureReason` is populated when the request reaches `MINED_FAILED` or `FAILED_PERMANENT`.
+
+---
+
+## Fee model
+
+The `/estimate` response tells you exactly what the user will pay. How that number is computed is an operator choice via `GASLESS_FEE_MODE` (default `bps`). Both modes apply to EVM and Solana.
+
+### Fee modes — `bps` vs `fixed`
+
+| Mode | How the fee is sized | Price feed |
+| --- | --- | --- |
+| `bps` (default) | `fee = rawNetworkCost × (1 + GASLESS_BASE_FEE_MARKUP_PERCENT/100)` (default markup 15%). Byte-identical to the prior flat-markup behaviour. | Not used — operates even when prices are unavailable. |
+| `fixed` | `fee = (rawNetworkCost priced into the fee token) + a per-token profit`. Applies to directly-accepted and native fee tokens. | Required — fails closed if no fresh price (see below). |
+
+The **swap path** (an arbitrary non-accepted fee token that must be converted) always stays on the markup + min-floor sizing described in the family-specific sections, regardless of mode.
+
+**Price feed:** a scheduled job pulls the full Rango `/basic/meta` token list every `GASLESS_PRICE_REFRESH_CRON` (default `*/5 * * * *`) and once on boot, storing every priced token in a single Redis blob. A blob older than `GASLESS_PRICE_MAX_AGE_SECONDS` (default 900s) is unusable and the backend **fails closed** with `40014 GASLESS_PRICE_UNAVAILABLE` rather than risk under-charging. Conversion always rounds up so the operator never under-charges. When the feed is unavailable, an operator can switch `GASLESS_FEE_MODE=bps` as a stopgap (bps mode needs no feed).
+
+### Per-token profit (`fixed` mode)
+
+In `fixed` mode the operator's profit per fee token is configured via:
+
+```
+GASLESS_FEE_PROFIT=<chainId>:<TOKEN_or_addr>:<amount>,...
+```
+
+- `amount` is in **human units** (not base units).
+- The token is matched by address or symbol, **case-insensitive**.
+- The profit is added on top of the priced network cost for accepted and native fee tokens.
+
+### Operator economics (internal — not in public docs)
+
+This detail is deliberately kept out of the public docs (it's business-internal). The user-facing docs only say the fee covers 'network cost + a small service fee, fixed at quote time'.
+
+- **Margin**: `GASLESS_BASE_FEE_MARKUP_PERCENT` (default 15%) in `bps` mode; per-token profit in `fixed` mode.
+- **Ballpark cost** (mainnet, SOL=$150): a light Solana USDC transfer costs the operator ~30,000 lamports (~$0.0045); a Jupiter swap or Rango bridge is ~5-20× that. EVM cost tracks base+priority gas.
+- **Overshoot/surplus**: if actual on-chain cost exceeds the quote, the operator absorbs it (user never charged more); if it's under, the operator keeps the surplus. The estimate is intentionally conservative.
+- **No-loss ceiling** (below) is what guarantees the operator can't settle at a loss when priority fees spike.
+
+### No-loss ceiling
+
+An optional guard (`GASLESS_NO_LOSS_CHECK`, default off) protects the operator against a priority-fee auction spike leaving them out of pocket. When on, the backend **refuses the quote** (`40015 GASLESS_FEE_BELOW_MAX_NETWORK_COST`, HTTP 422) whenever the settlement amount is worth less than `simulatedCost × (1 + GASLESS_PRIORITY_HEADROOM_BPS)` (default `3000` = 30%), priced into the token the treasury settles in.
+
+**Operator foot-gun:** in `bps` mode with the no-loss check on, keep `GASLESS_BASE_FEE_MARKUP_PERCENT` ≥ the headroom percentage, or the guard rejects most quotes. The backend fires a boot warning when markup < headroom.
+
+### Fiat fields on the estimate response
+
+Estimate responses include best-effort `feeUsd` and `estimatedNativeCostUsd` (decimal strings) so a UI can show the user a fiat value:
+
+```json
+{
+  "feeTokenAddress": "XsDoVfqeBukxuZHWhdvWHBhgEHjGNst4MLodqsJHzoB",
+  "feeAmount": "11129",
+  "acceptedFeeToken": true,
+  "swapRoute": null,
+  "feeUsd": "0.0489",
+  "estimatedNativeCostUsd": "0.0425"
+}
+```
+
+Both fields are **best-effort**: they are omitted (never an error) when a price for the relevant token is missing from the feed.
 
 ---
 
@@ -414,6 +483,19 @@ The swap-fee path appends Rango/Jupiter swap instructions on top of the user's i
 
 When you hit `40008`, the response body's `message` field lists the four options that actually help — switching to a directly-accepted fee token is almost always the right one.
 
+### Size fallback — single tx vs Jito bundle
+
+When the swap-fee transaction (a Jupiter swap plus the user's intent) overflows Solana's 1232-byte limit in single-tx mode, the request **auto-falls-back to a 2-transaction Jito bundle** instead of hard-failing:
+
+- an **operator-signed SOL-prefund** tx, plus
+- the **user-signed** `[swap + intent + Jito tip]` tx.
+
+Both land **all-or-nothing** as a bundle. The prefund tx is signed server-side and never sent to you.
+
+**The user still signs exactly ONE transaction.** From the integrator's perspective the flow is unchanged — you collect a single Solana signature whether the request is served as a single tx or as the fallback bundle. The estimate/create response's `mode` field (`single` | `bundled`) tells you which path was chosen; the user-signable transaction is always the one returned in `unsignedTransactionBase64`. (A future two-signature path for intents that overflow even without the operator prefund is planned but not implemented — see the fee-model card.)
+
+> **Planned, not implemented:** a future two-signature path — splitting the swap from the intent for intents that overflow even without the prefund — is on the roadmap but **not built**. Integrators collect exactly one Solana signature today.
+
 ### Solana unresolved scenarios and use conditions
 
 Two configurations exceed Solana's 1232-byte wire limit for reasons intrinsic to the tx format, not to our backend. Neither is a bug we can fix without changes to Rango's route selection or a protocol change to Solana. Use conditions below are what actually works reliably today (verified 2026-07-08 e2e).
@@ -495,12 +577,10 @@ interface EvmCreated {
   requestId: string;
   chainId: number;
   delegateContractAddress: string;
-  feePayer: string;
-  gaslessNonce: string;
+  nonce: string;
+  atomicGroupStart: number;
   operations: { to: string; value: string; data: string }[];
   digest: string;
-  feeAmount: string;
-  feeTokenAddress: string;
   expiresAtSeconds: number;
 }
 
@@ -568,7 +648,7 @@ async function signBatch(wallet: Wallet, prep: EvmCreated): Promise<string> {
     ],
   };
   const value = {
-    nonce: BigInt(prep.gaslessNonce),
+    nonce: BigInt(prep.nonce),
     operations: prep.operations.map((o) => ({
       to: o.to,
       value: BigInt(o.value),
@@ -651,7 +731,7 @@ The old per-EVM-chain `tokens: {SYMBOL: {address, decimals}}` map is gone. Decim
 
 Both signatures are required. The `nonce` for the authorization is the user's current EOA tx count from the chain — fetch it via `eth_getTransactionCount` immediately before signing to avoid races.
 
-The `GaslessDelegate` contract addresses per chain are recorded in the backend's `deployed.json`; you can query them via `GET /chains` if you don't want to hardcode.
+The `GaslessDelegate` contract addresses per chain are recorded in the backend's `deployed.json` (and in `chains.json`); read them from there.
 
 ---
 
@@ -696,7 +776,7 @@ The backend uses stable numeric error codes. Each one is family-agnostic; the sa
 | --- | --- | --- |
 | `20001` | 400 | Chain not supported |
 | `20002` | 502/503 | RPC unreachable or contract call reverted at RPC (also returned when a delegated EOA's `GaslessDelegate.nonce()` read fails — retry with backoff) |
-| `20003` | 400 | No deployed delegate contract for the chain |
+| `20003` | 503 | No deployed delegate contract for the chain |
 | `20004` | 400 | Fee token not found in chain config — **EVM: retired for per-request use** (the token whitelist was dropped; any address is accepted, with unaccepted tokens routed through swap-fee-path). Still fires on Solana for unrecognized mints, and on EVM only for chain-level misconfiguration (fires at boot, not per request) |
 | `20005` | 502 | Chain gas estimation failed |
 | `30001` | 502 | Rango request failed |
@@ -760,7 +840,7 @@ If your wallet currently runs `RewriteAtaPayer` and `DedupeByteIdentical` on Ran
 - Remove your rewrite + dedup from your wallet codebase. After this, the prefund SOL flows through to ATA rents exactly as intended. Operator-side cost is identical to today.
 - **Don't remove your passes if the backend isn't on `db53d81` or later.** Without our prefund, you'd see the original "insufficient lamports 0, need 2039280" failure again.
 
-You can verify the backend version by hitting `GET /version` (returns commit hash) or by checking the broadcaster logs for the new prefund line (`[SolanaBatchBuilderService] prefunding user … with N lamports …`).
+You can verify the deployed backend by checking the broadcaster logs for the new prefund line (`[SolanaBatchBuilderService] prefunding user … with N lamports …`).
 
 **Behavior change 2026-06-30 — fees on bridges with ATA-creates are now higher (the correct amount):**
 
