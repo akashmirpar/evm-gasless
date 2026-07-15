@@ -201,6 +201,15 @@ GASLESS_FEE_PROFIT=<chainId>:<TOKEN_or_addr>:<amount>,...
 - The token is matched by address or symbol, **case-insensitive**.
 - The profit is added on top of the priced network cost for accepted and native fee tokens.
 
+### Operator economics (internal — not in public docs)
+
+This detail is deliberately kept out of the public docs (it's business-internal). The user-facing docs only say the fee covers 'network cost + a small service fee, fixed at quote time'.
+
+- **Margin**: `GASLESS_BASE_FEE_MARKUP_PERCENT` (default 15%) in `bps` mode; per-token profit in `fixed` mode.
+- **Ballpark cost** (mainnet, SOL=$150): a light Solana USDC transfer costs the operator ~30,000 lamports (~$0.0045); a Jupiter swap or Rango bridge is ~5-20× that. EVM cost tracks base+priority gas.
+- **Overshoot/surplus**: if actual on-chain cost exceeds the quote, the operator absorbs it (user never charged more); if it's under, the operator keeps the surplus. The estimate is intentionally conservative.
+- **No-loss ceiling** (below) is what guarantees the operator can't settle at a loss when priority fees spike.
+
 ### No-loss ceiling
 
 An optional guard (`GASLESS_NO_LOSS_CHECK`, default off) protects the operator against a priority-fee auction spike leaving them out of pocket. When on, the backend **refuses the quote** (`40015 GASLESS_FEE_BELOW_MAX_NETWORK_COST`, HTTP 422) whenever the settlement amount is worth less than `simulatedCost × (1 + GASLESS_PRIORITY_HEADROOM_BPS)` (default `3000` = 30%), priced into the token the treasury settles in.
