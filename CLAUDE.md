@@ -16,7 +16,7 @@ is empty. Generic review agents do NOT replace this script.
 2. Implement on a feature branch off `main`; never push to `main` directly.
 3. Unit tests + live e2e (`--config test/jest-e2e.json`); gasless paths must be
    verified with a SOL-less user — a funded test wallet does not test gasless.
-4. `review.py` loop (above).
+4. `code_reviewer.py` loop (above).
 5. Push, open PR. Commit as the user only — no Claude co-author trailers.
 
 ## Code style
