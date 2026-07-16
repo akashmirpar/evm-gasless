@@ -47,11 +47,7 @@ function serializeCause(cause: unknown): unknown {
 @Catch()
 export class AllExceptionsFilter implements ExceptionFilter {
   private readonly logger = new Logger('AllExceptionsFilter');
-  // `causes` on a PlutonException can carry internal detail (Solana program
-  // logs, aggregator responses, prefund internals) — a fingerprinting surface.
-  // Off by default: the full cause always goes to server logs, but it's only
-  // echoed in the HTTP response when an operator opts in (dev/debug). Field-level
-  // validation causes are exempt — they're user-facing and safe.
+  // Fingerprinting surface: echoed in responses only when the operator opts in; always logged server-side.
   private readonly exposeCauses =
     ['true', '1'].includes((process.env.GASLESS_EXPOSE_ERROR_CAUSES ?? 'false').trim().toLowerCase());
 
@@ -63,8 +59,6 @@ export class AllExceptionsFilter implements ExceptionFilter {
 
     const { status, body } = this.format(exception);
 
-    // Always log the causes server-side (sanitized), even when they're withheld
-    // from the HTTP response — operators still need them to debug.
     const loggedCauses =
       (exception instanceof PlutonHttpException || exception instanceof PlutonSystemException) && exception.causes.length > 0
         ? exception.causes.map(serializeCause).filter((c) => c !== null)
