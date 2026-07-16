@@ -262,7 +262,7 @@ Transfer: insufficient lamports 0, need 2039280
 
 How that amount is sized depends on the operator's `GASLESS_PREFUND_SIZING` (see the backend's [Solana architecture › Prefund sizing](./solana-architecture.md#prefund-sizing)):
 - **`scan` (default):** we scan your `instructions` for ATA-program Create / CreateIdempotent where the payer slot equals your `userAddress`, at 2,039,280 lamports each.
-- **`simulate`:** we *simulate* your intent with and without a prefund and prefund the exact SOL it consumes — this also covers non-ATA SOL costs (bridge native fees) automatically and never over-prefunds.
+- **`simulate`:** we *simulate* your intent with and without a prefund. If the user self-covers, no prefund is sent at all; otherwise the prefund is the measured SOL consumption, floored at the scan value — simulation only ever raises the prefund above the scan (covering non-ATA SOL costs like bridge native fees), never lowers it below.
 
 Either way it's transparent to you; the difference is only in accuracy.
 
