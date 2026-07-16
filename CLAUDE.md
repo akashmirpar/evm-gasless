@@ -3,11 +3,12 @@
 ## Review (non-negotiable)
 Every feature branch MUST be reviewed with the project reviewer BEFORE pushing:
 
-    python3 code-review/review.py --source <branch> --target main --card <slug>
+    cd code-review && python3 code_reviewer.py
 
-Loop review → fix → re-review until the Critical section is empty (exit 0). The
-artifacts (`diff_N.diff`, `review_N.md`) live in `code-review/cards/<slug>/` and are
-part of the deliverable. Generic review agents do NOT replace this script.
+(edit ISSUE_ID / SOURCE_BRANCH / TARGET_BRANCH constants at the top first). It fetches
+the YouTrack card, snapshots the diff and conventions, and pipes prompt.md to `claude -p`,
+writing `issue_<ID>_review.md`. Loop review → fix → re-review until the Critical section
+is empty. Generic review agents do NOT replace this script.
 
 ## Workflow
 1. Task card first: `code-review/cards/<slug>/description.md` in the `_TEMPLATE.md`
