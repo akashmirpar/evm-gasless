@@ -111,7 +111,7 @@ Same body as `estimate` plus optional fields on Solana:
 
 - `addressLookupTables?: string[]` — ALT pubkeys from your routing provider's V0 response
 - `userSolPrefundLamports?: string` — absolute override for the SOL prefund (see [Overriding the SOL prefund](#overriding-the-sol-prefund))
-- `userSolPrefundExtraLamports?: string` — additive top-up on the auto-scanned prefund
+- `userSolPrefundExtraLamports?: string` — additive top-up on the auto-sized prefund
 
 Returns the unsigned transaction and bookkeeping:
 
@@ -258,7 +258,13 @@ When the user's intent comes from a routing provider, the instruction list almos
 Transfer: insufficient lamports 0, need 2039280
 ```
 
-**The gasless backend handles this transparently.** When you POST to `/gasless/solana/transactions`, we scan your `instructions` array for ATA-program Create / CreateIdempotent instructions where the payer slot equals the `userAddress` you supplied. For each one we find, we inject a `SystemProgram.transfer` from the operator to the user immediately before your instructions execute — exactly 2,039,280 lamports per ATA-create. By the time the bridge tries to charge the user for rent, the user's wallet has the funds.
+**The gasless backend handles this transparently.** When you POST to `/gasless/solana/transactions`, we size the SOL the user's intent needs and inject a `SystemProgram.transfer` from the operator to the user immediately before your instructions execute. By the time the bridge tries to charge the user for rent, the user's wallet has the funds.
+
+How that amount is sized depends on the operator's `GASLESS_PREFUND_SIZING` (see the backend's [Solana architecture › Prefund sizing](./solana-architecture.md#prefund-sizing)):
+- **`simulate` (default):** we *simulate* your intent with and without a prefund. If the user self-covers, no prefund is sent at all; otherwise the prefund is the measured SOL consumption, floored at the scan value — simulation only ever raises the prefund above the scan (covering non-ATA SOL costs like bridge native fees), never lowers it below.
+- **`scan` (fallback):** we scan your `instructions` for ATA-program Create / CreateIdempotent where the payer slot equals your `userAddress`, at 2,039,280 lamports each. Used automatically when simulation is unavailable.
+
+Either way it's transparent to you; the difference is only in accuracy.
 
 **You do NOT need to:**
 
@@ -280,14 +286,14 @@ The backend logs the prefund decision per request:
 
 ### Overriding the SOL prefund
 
-When the user's intent includes SOL costs that aren't ATA rent — e.g. a **LayerZero OFT messaging fee** (~0.01 SOL) on USDT0 routes, or any bridge that charges a protocol fee in SOL — the auto-scan undershoots, simulation reverts with `insufficient lamports`, and the operator eats the envelope fee with nothing collected.
+When the user's intent includes SOL costs that aren't ATA rent — e.g. a **LayerZero OFT messaging fee** (~0.01 SOL) on USDT0 routes, or any bridge that charges a protocol fee in SOL — the **`scan`-mode** auto-scan undershoots (it only sees ATA-creates), simulation reverts with `insufficient lamports`, and the operator eats the envelope fee with nothing collected. (Under `GASLESS_PREFUND_SIZING=simulate` this is measured automatically — the overrides below are only needed in `scan` mode, or to force an exact amount.)
 
 Two optional fields on `POST /gasless/solana/transactions` let you adjust:
 
 | Field | Behavior |
 | --- | --- |
-| `userSolPrefundLamports` | **Absolute override.** When set, the backend skips its auto-scan entirely and prefunds exactly this amount. Use when you know the precise SOL total the user will need (e.g. you got the nativeFee from a `quoteSend()` call on the LayerZero OFT contract and counted ATA rents yourself). |
-| `userSolPrefundExtraLamports` | **Additive top-up.** Added on top of the backend's auto-scanned amount. Use when the auto-scan covers most of what's needed (ATA rents) and you want a buffer for one known native fee (e.g. `+10_000_000` for a LayerZero route). |
+| `userSolPrefundLamports` | **Absolute override.** When set, the backend skips auto-sizing (scan or simulate) entirely and prefunds exactly this amount. Use when you know the precise SOL total the user will need (e.g. you got the nativeFee from a `quoteSend()` call on the LayerZero OFT contract and counted ATA rents yourself). |
+| `userSolPrefundExtraLamports` | **Additive top-up.** Added on top of the backend's auto-sized amount. Use when the auto-scan covers most of what's needed (ATA rents) and you want a buffer for one known native fee (e.g. `+10_000_000` for a LayerZero route). |
 
 The two are **mutually exclusive** — setting both returns `40001 GASLESS_INVALID_REQUEST`. Both values are stringified lamport amounts.
 
@@ -895,7 +901,9 @@ This section is for whoever runs the gasless backend, not integrators. Integrato
 | `GASLESS_TX_GAS_LIMIT` | `2000000` | Hard cap on the type-4 envelope. |
 | `GASLESS_RANGO_SLIPPAGE` | `0.5` | One-side slippage (%) sent to Rango for fee-token swaps. The backend applies 2× this as a buffer on the inverse-quote pattern. |
 | `GASLESS_CREATE_TTL_SECONDS` | `90` | Window between `/transactions` and `/submit`. Tighter = less race exposure; looser = more forgiving of slow mobile-wallet flows. |
-| `GASLESS_MAX_PREFUND_LAMPORTS` | `50000000` | Hard ceiling on operator→user SOL prefund per tx. Caller overrides exceeding this return `40001`. |
+| `GASLESS_PREFUND_SIZING` | `simulate` | How the Solana user-SOL prefund is sized: `simulate` (default — measure the exact SOL via a with/without-prefund simulation, floored at the scan; fixes 0-SOL swap-fee estimates and catches non-ATA native fees; logs scan-vs-sim-vs-applied) or `scan` (static ATA-create scan — the automatic fallback when simulation is unavailable and an emergency opt-out). See [Solana architecture › Prefund sizing](./solana-architecture.md#prefund-sizing). |
+| `GASLESS_MAX_PREFUND_LAMPORTS` | `50000000` | Hard ceiling on operator→user SOL prefund per tx. Caller overrides **and** the `simulate`-measured value are rejected (`40001`) when they exceed this. |
+| `GASLESS_EXPOSE_ERROR_CAUSES` | `false` | When `true`, echoes the `causes[]` diagnostics (program logs, aggregator responses) in HTTP error responses. Off by default — a fingerprinting surface; the full detail always goes to the server logs regardless. Turn on only for dev/debug. Field-level validation causes (`90001`) are always returned. |
 | `SOLANA_DEFAULT_PRIORITY_MICROLAMPORTS_PER_CU` | `1000` | Default priority fee. Raise during congestion. |
 | `SOLANA_SOL_USD_PRICE`, `SOLANA_FEE_TOKEN_USD_PRICE` | unset | Required to enable the price-cross fallback when Rango is unavailable on swap-fee path. Backend refuses fallback math without both set (prevents silent operator subsidy). |
 | `SOLANA_MIN_FEE_LAMPORTS` | `666666` (≈$0.10) | Minimum fee on the swap-fee path only. Curve: $0.005 → fails routinely; $0.03 → minute-to-minute variance; $0.10 → always works for mainstream pairs; $0.50+ → works for thin meme pools. |

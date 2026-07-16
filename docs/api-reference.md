@@ -14,6 +14,7 @@ Every response — success or failure — is wrapped:
 
 // failure
 { "success": false, "error": { "code": <number>, "message": <string>, "causes"?: [...] } }
+// `causes` is present only for validation errors (90001) or when GASLESS_EXPOSE_ERROR_CAUSES=true (off by default).
 ```
 
 `code` is the numeric error code from [error-codes.md](error-codes.md). HTTP status matches the error's `httpCode` (400, 404, 409, 410, 422, 500, 502, 503).
