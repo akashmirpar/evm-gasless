@@ -2,6 +2,7 @@ import { CanActivate, ExecutionContext, Injectable } from '@nestjs/common';
 import type { Request } from 'express';
 
 import { AuthErrors, PlutonException } from '../../../../common/errors';
+import { REDIS_KEY_PREFIX } from '../../../../common/redis';
 import { RateLimiterService } from '../../../auth/services/rate_limiter.service';
 import { AdminAuthService } from '../../services/admin_auth.service';
 import type { AdminEntity } from '../../domain/entity/admin.entity';
@@ -25,7 +26,7 @@ export class AdminKeyGuard implements CanActivate {
     const request = context.switchToHttp().getRequest<Request>();
     const key = extractAdminKey(request);
     const ip = extractIp(request);
-    const failureKey = `gasless:authfail:ip:${ip ?? 'unknown'}`;
+    const failureKey = `${REDIS_KEY_PREFIX}authfail:ip:${ip ?? 'unknown'}`;
 
     if ((await this.rateLimiter.peek(failureKey)) >= FAILED_AUTH_IP_LIMIT) {
       throw PlutonException(AuthErrors.Forbidden);

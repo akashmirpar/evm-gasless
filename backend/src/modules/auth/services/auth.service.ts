@@ -5,9 +5,10 @@ import type { Cache } from 'cache-manager';
 import { Repository } from 'typeorm';
 
 import { AuthErrors, PlutonException } from '../../../common/errors';
+import { REDIS_KEY_PREFIX } from '../../../common/redis';
 import { ApiKeyEntity } from '../domain/entity/api_key.entity';
 
-const API_KEY_CACHE_PREFIX = 'gasless:auth:apikey:';
+const API_KEY_CACHE_PREFIX = `${REDIS_KEY_PREFIX}auth:apikey:`;
 const API_KEY_CACHE_TTL_MS = 5 * 60 * 1000;
 
 /** Date-typed columns that must be revived after a JSON round-trip. */
