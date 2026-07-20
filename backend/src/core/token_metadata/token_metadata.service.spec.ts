@@ -1,6 +1,7 @@
 import { TokenMetadataService } from './token_metadata.service';
 import { NATIVE_TOKEN_SENTINEL } from '../chain_config/chain_config.service';
 import { NetworkType } from '../../common/utils/network_type';
+import { REDIS_KEY_PREFIX } from '../../common/redis';
 
 interface FakeCache {
   store: Map<string, unknown>;
@@ -59,7 +60,7 @@ describe('TokenMetadataService.getDecimals', () => {
   });
 
   it('cache hit — returns cached value, no RPC call', async () => {
-    const cache = makeCache({ 'token:decimals:42161:0xabcdef': 6 });
+    const cache = makeCache({ [`${REDIS_KEY_PREFIX}token:decimals:42161:0xabcdef`]: 6 });
     const { svc, withFallback } = makeService({ cache });
     await expect(svc.getDecimals(42161, '0xABCDEF')).resolves.toBe(6);
     expect(withFallback).not.toHaveBeenCalled();
@@ -70,7 +71,7 @@ describe('TokenMetadataService.getDecimals', () => {
     await expect(svc.getDecimals(42161, '0xFd086bC7CD5C481DCC9C85ebE478A1C0b69FCbb9')).resolves.toBe(6);
     expect(withFallback).toHaveBeenCalledTimes(1);
     expect(cache.set).toHaveBeenCalledWith(
-      'token:decimals:42161:0xfd086bc7cd5c481dcc9c85ebe478a1c0b69fcbb9',
+      `${REDIS_KEY_PREFIX}token:decimals:42161:0xfd086bc7cd5c481dcc9c85ebe478a1c0b69fcbb9`,
       6,
       expect.any(Number),
     );

@@ -5,9 +5,10 @@ import type { Cache } from 'cache-manager';
 import { IsNull, Not, Repository } from 'typeorm';
 
 import { AuthErrors, PlutonException } from '../../../common/errors';
+import { REDIS_KEY_PREFIX } from '../../../common/redis';
 import { AdminEntity } from '../domain/entity/admin.entity';
 
-const ADMIN_KEY_CACHE_PREFIX = 'gasless:auth:adminkey:';
+const ADMIN_KEY_CACHE_PREFIX = `${REDIS_KEY_PREFIX}auth:adminkey:`;
 const ADMIN_KEY_CACHE_TTL_MS = 5 * 60 * 1000;
 
 const DATE_FIELDS: readonly (keyof AdminEntity)[] = ['createdAt', 'updatedAt', 'deletedAt'];
