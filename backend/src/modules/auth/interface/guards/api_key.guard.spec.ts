@@ -2,6 +2,7 @@ import { ExecutionContext } from '@nestjs/common';
 
 import { PlutonHttpException } from '../../../../common/errors';
 import { ErrorCodes } from '../../../../common/errors/codes';
+import { REDIS_KEY_PREFIX } from '../../../../common/redis';
 import { ApiKeyGuard } from './api_key.guard';
 
 function makeCtx(headers: Record<string, string> = {}, ip = '1.2.3.4'): ExecutionContext {
@@ -31,7 +32,7 @@ describe('ApiKeyGuard', () => {
     await expect(guard.canActivate(makeCtx({}))).rejects.toMatchObject({
       errorInfo: { code: ErrorCodes.AUTH_UNAUTHORIZED },
     });
-    expect(rateLimiter.hit).toHaveBeenCalledWith(expect.stringContaining('gasless:authfail:ip:'), 5, 1);
+    expect(rateLimiter.hit).toHaveBeenCalledWith(expect.stringContaining(`${REDIS_KEY_PREFIX}authfail:ip:`), 5, 1);
   });
 
   it('rejects an IP that has already burned its failed-auth budget without touching authService', async () => {
@@ -54,7 +55,7 @@ describe('ApiKeyGuard', () => {
     await expect(guard.canActivate(makeCtx({ 'x-api-key': 'bad' }))).rejects.toMatchObject({
       errorInfo: { code: ErrorCodes.AUTH_UNAUTHORIZED },
     });
-    expect(rateLimiter.hit).toHaveBeenCalledWith(expect.stringContaining('gasless:authfail:ip:'), 5, 1);
+    expect(rateLimiter.hit).toHaveBeenCalledWith(expect.stringContaining(`${REDIS_KEY_PREFIX}authfail:ip:`), 5, 1);
   });
 
   it('enforces the per-key RPS budget with a 429/RATE_LIMITED error', async () => {

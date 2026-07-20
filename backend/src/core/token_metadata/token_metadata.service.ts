@@ -7,6 +7,7 @@ import { PlutonException } from '../../common/errors';
 import { ChainConfigService, isNativeSentinel } from '../chain_config/chain_config.service';
 import { GaslessErrors } from '../../common/errors/gasless.errors';
 import { NetworkType } from '../../common/utils/network_type';
+import { REDIS_KEY_PREFIX } from '../../common/redis';
 import { RpcService } from '../rpc/rpc.service';
 
 const ERC20_DECIMALS_ABI = ['function decimals() view returns (uint8)'];
@@ -39,7 +40,7 @@ export class TokenMetadataService {
     if (isNativeSentinel(address)) return cfg.nativeDecimals;
 
     const lower = address.trim().toLowerCase();
-    const cacheKey = `token:decimals:${chainId}:${lower}`;
+    const cacheKey = `${REDIS_KEY_PREFIX}token:decimals:${chainId}:${lower}`;
     try {
       const cached = await this.cache.get<number>(cacheKey);
       if (typeof cached === 'number' && Number.isInteger(cached) && cached >= 0 && cached <= 255) {
@@ -83,7 +84,7 @@ export class TokenMetadataService {
     if (isNativeSentinel(address)) return cfg.nativeSymbol;
 
     const lower = address.trim().toLowerCase();
-    const cacheKey = `token:symbol:${chainId}:${lower}`;
+    const cacheKey = `${REDIS_KEY_PREFIX}token:symbol:${chainId}:${lower}`;
     try {
       const cached = await this.cache.get<string>(cacheKey);
       if (typeof cached === 'string' && cached.length > 0) return cached;

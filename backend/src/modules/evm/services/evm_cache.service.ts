@@ -2,6 +2,7 @@ import { CACHE_MANAGER } from '@nestjs/cache-manager';
 import { Inject, Injectable } from '@nestjs/common';
 import type { Cache } from 'cache-manager';
 
+import { REDIS_KEY_PREFIX } from '../../../common/redis';
 import { OperationInput } from '../domain/operation';
 
 export interface CachedRequest {
@@ -39,6 +40,6 @@ export class EvmCacheService {
   }
 
   private key(requestId: string): string {
-    return `gasless:req:${requestId}`;
+    return `${REDIS_KEY_PREFIX}req:${requestId}`;
   }
 }
