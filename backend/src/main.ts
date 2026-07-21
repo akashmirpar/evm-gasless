@@ -1,8 +1,14 @@
 import 'reflect-metadata';
-import { config as loadDotenv } from 'dotenv';
-loadDotenv();
+// Stage the yaml+secret config path BEFORE app.module (and thus ConfigModule)
+// is imported below, so loadConfig() reads the intended file. The merged
+// yaml+secret map (src/config) is the single source of truth — this replaces
+// the old dotenv/process.env reads.
+import { parseConfigPath, yamlReader } from './config';
+
+yamlReader(parseConfigPath());
 
 import { Logger, ValidationPipe } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { NestFactory } from '@nestjs/core';
 import { NestExpressApplication } from '@nestjs/platform-express';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
@@ -22,8 +28,9 @@ async function bootstrap() {
   const doc = SwaggerModule.createDocument(app, swagger);
   SwaggerModule.setup('swagger', app, doc, { jsonDocumentUrl: 'swagger/json' });
 
-  const port = Number(process.env.SERVICE_PORT ?? '3100');
-  const host = process.env.SERVICE_HOST ?? '0.0.0.0';
+  const config = app.get(ConfigService);
+  const port = Number(config.get<string>('SERVICE_PORT') ?? '3100');
+  const host = config.get<string>('SERVICE_HOST') ?? '0.0.0.0';
   await app.listen(port, host);
   Logger.log(`gasless backend listening on http://${host}:${port}`, 'Bootstrap');
   Logger.log(`swagger at http://${host}:${port}/swagger`, 'Bootstrap');

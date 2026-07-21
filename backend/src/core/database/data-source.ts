@@ -1,11 +1,9 @@
 import 'reflect-metadata';
-import { config as loadDotenv } from 'dotenv';
 import { join } from 'path';
 import { DataSource, DataSourceOptions } from 'typeorm';
 
+import { loadConfig } from '../../config';
 import { SnakeNamingStrategy } from '../../common/utils/snake_naming.strategy';
-
-loadDotenv();
 
 function num(v: unknown, fallback: number): number {
   if (typeof v === 'number') return v;
@@ -22,15 +20,18 @@ function str(v: unknown, fallback: string): string {
 }
 
 export function buildDataSourceOptions(): DataSourceOptions {
+  // The TypeORM CLI (migration:*) runs outside Nest's DI container, so read the
+  // merged config directly instead of via ConfigService.
+  const config = loadConfig();
   const rootDir = __dirname;
   const baseDir = join(rootDir, '..', '..');
   return {
     type: 'postgres',
-    host: str(process.env.DATABASE_POSTGRES_HOST, '127.0.0.1'),
-    port: num(process.env.DATABASE_POSTGRES_PORT, 5432),
-    username: str(process.env.DATABASE_POSTGRES_USERNAME, 'gasless'),
-    password: str(process.env.DATABASE_POSTGRES_PASSWORD, 'gasless'),
-    database: str(process.env.DATABASE_POSTGRES_DATABASE, 'gasless'),
+    host: str(config.DATABASE_POSTGRES_HOST, '127.0.0.1'),
+    port: num(config.DATABASE_POSTGRES_PORT, 5432),
+    username: str(config.DATABASE_POSTGRES_USERNAME, 'gasless'),
+    password: str(config.DATABASE_POSTGRES_PASSWORD, 'gasless'),
+    database: str(config.DATABASE_POSTGRES_DATABASE, 'gasless'),
     entities: [join(baseDir, '**', '*.entity.{ts,js}'), join(baseDir, '**', '*.view.{ts,js}')],
     migrations: [join(rootDir, 'migrations', '*.{ts,js}')],
     migrationsTableName: 'typeorm_migrations',

@@ -1,0 +1,131 @@
+# Gasless relayer sample config. Copy to ./config.yaml and adjust per env.
+#
+# How config resolves (see src/config/yaml_reader.ts):
+#   - This YAML is flattened to UPPER_SNAKE_CASE keys (e.g. database.postgres.host
+#     -> DATABASE_POSTGRES_HOST) and read via ConfigService.get('<KEY>').
+#   - `${VAR}` placeholders are expanded from the secret file (default:
+#     /run/secrets/pluton_env, or $PLUTON_ENV_FILE, or ./.env) — never inline a
+#     secret here.
+#   - Secret-file values OVERRIDE the value set here at the same flattened key,
+#     so any knob below can be overridden at deploy time by adding
+#     `<KEY>=value` to the secret file (no YAML edit needed).
+#
+# Scalars are quoted so ConfigService returns strings uniformly (the code parses
+# them with Number()/BigInt()/.trim() exactly as it did for env vars).
+
+# --- HTTP server ---
+service:
+  port: '3100'
+  host: '0.0.0.0'
+
+# --- Postgres ---
+database:
+  postgres:
+    host: '127.0.0.1'
+    port: '5432'
+    username: '${DATABASE_POSTGRES_USERNAME}'
+    password: '${DATABASE_POSTGRES_PASSWORD}'
+    database: 'gasless'
+
+# --- Redis (cache + rate limiter) ---
+redis:
+  host: '127.0.0.1'
+  port: '6379'
+  # Optional ACL username. Leave the placeholder empty to auth as `default`
+  # (password only); set it on shared Redis to auth as a per-service ACL user.
+  username: '${REDIS_USERNAME}'
+  password: '${REDIS_PASSWORD}'
+  defaultTtlSeconds: '300'
+
+# --- Chain config file locations ---
+# Optional absolute overrides. When empty the service walks up from its install
+# dir to find chains/chains.json (and deployed.json beside it). The Docker image
+# sets CHAINS_JSON_PATH to the baked-in copy.
+CHAINS_JSON_PATH: '${CHAINS_JSON_PATH}'
+DEPLOYED_JSON_PATH: '${DEPLOYED_JSON_PATH}'
+
+# --- EVM operator wallet + treasury ---
+operator:
+  # Pays gas as the EIP-7702 type-4 tx sender. Required for EVM relaying.
+  privateKey: '${OPERATOR_PRIVATE_KEY}'
+
+# --- Rango (swap routing for non-accepted fee tokens) ---
+rango:
+  apiUrl: 'https://api.rango.exchange'
+  apiKey: '${RANGO_API_KEY}'
+  httpTimeoutMs: '30000'
+
+# --- Gasless fee / behaviour knobs ---
+gasless:
+  # Treasury addresses that receive the user's fee. Provided via the secret store.
+  treasuryAddress: '${GASLESS_TREASURY_ADDRESS}'
+  solanaTreasuryAddress: '${GASLESS_SOLANA_TREASURY_ADDRESS}'
+  # Solana-only legacy fee-token whitelist (comma-separated). Empty = unset.
+  acceptedFeeTokens: ''
+  baseFeeMarkupPercent: '15'
+  defaultGasUnits: '1500000'
+  rangoSlippage: '5.0'
+  createTtlSeconds: '90'
+  txGasLimit: '2000000'
+  maxPrefundLamports: '50000000'
+  tokenMetadataTtlSeconds: '86400'
+
+# --- Relayer broadcast loop ---
+relayer:
+  # Cron for the EVM relayer job (6-field, seconds granularity).
+  cron: '*/5 * * * * *'
+  # Cron for the Solana relayer job; falls back to `relayer.cron` when unset.
+  solanaCron: '*/5 * * * * *'
+  maxRetries: '6'
+  retryBaseMs: '5000'
+
+# --- Scheduler per-job cron overrides (optional) ---
+# Empty = use the cron the job registers with (see relayer.cron above).
+scheduler:
+  evmRelayer:
+    time: ''
+  solanaRelayer:
+    time: ''
+
+# --- Per-chain RPC endpoint overrides (optional) ---
+# Each chain in chains/chains.json ships with `defaultRpcs`; to override them at
+# runtime, set the chain's `envRpcVar` (a comma/whitespace-separated URL list) in
+# the SECRET FILE — e.g. ARBITRUM_RPC_URLS, BASE_RPC_URLS, BSC_RPC_URLS,
+# SOLANA_RPC_URLS, SOLANA_DEVNET_RPC_URLS. Left unset, the built-in defaults apply.
+
+# --- Solana ---
+solana:
+  rpc:
+    perUrlRetries: '1'
+    perUrlRetryDelayMs: '250'
+  # Comma-separated ATA-create instruction discriminators counted as user-paid.
+  ataCreateDiscriminators: '0,1'
+  defaultPriorityMicrolamportsPerCu: '1000'
+  maxPriorityMicrolamportsPerCu: '100000'
+  dynamicPriorityEnabled: 'true'
+  dynamicPriorityPercentile: '75'
+  minFeeLamports: '666666'
+  # Broadcast mode: `single` (classic) or `bundled` (Jito atomic bundle).
+  bundledModeEnabled: 'true'
+  modeDefault: 'single'
+  jito:
+    bundleUrl: 'https://mainnet.block-engine.jito.wtf/api/v1/bundles'
+    uuid: '${SOLANA_JITO_UUID}'
+    tipLamports: '5000'
+  broadcast:
+    skipPreflight: 'true'
+    maxRetries: '5'
+  operator:
+    # Solana operator key. Set privateKey OR mnemonic (+ optional accountIndex).
+    privateKey: '${SOLANA_OPERATOR_PRIVATE_KEY}'
+    mnemonic: '${SOLANA_OPERATOR_MNEMONIC}'
+    accountIndex: '${SOLANA_OPERATOR_ACCOUNT_INDEX}'
+    # Comma-separated operator-owned Address Lookup Table addresses. Empty = none.
+    altAddresses: ''
+
+# --- Dev/test only wallet fallback (never set in production) ---
+# When SOLANA_OPERATOR_* is unset, the operator key falls back to these so a
+# single mnemonic can play both user and fee-payer in e2e tests.
+test:
+  solanaSenderPrivateKey: '${TEST_SOLANA_SENDER_PRIVATE_KEY}'
+  solanaAccountIndex: '${TEST_SOLANA_ACCOUNT_INDEX}'
