@@ -1,3 +1,5 @@
+import type { ConfigService } from '@nestjs/config';
+
 import { EvmService } from './evm.service';
 import { NATIVE_TOKEN_SENTINEL } from '../../../core/chain_config/chain_config.service';
 
@@ -19,6 +21,7 @@ function makeService(balances: BalanceMap): EvmService {
   return new EvmService(
     {} as never, {} as never, {} as never, {} as never, {} as never, {} as never, {} as never,
     rpc,
+    { get: () => undefined } as unknown as ConfigService,
   );
 }
 

@@ -1,4 +1,5 @@
 import { Injectable } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { Interface, ZeroAddress } from 'ethers';
 
 import { PlutonException } from '../../../common/errors';
@@ -26,6 +27,7 @@ export class BatchBuilderService {
     private readonly chainConfig: ChainConfigService,
     private readonly rango: RangoClient,
     private readonly tokenMetadata: TokenMetadataService,
+    private readonly config: ConfigService,
   ) {}
 
   async build(chainId: number, userAddress: string, estimate: FeeEstimate, userOps: UserOpDto[]): Promise<BuiltBatch> {
@@ -54,7 +56,7 @@ export class BatchBuilderService {
         amount: estimate.feeAmountInFeeToken.toFixed(),
         userAddress,
         recipientAddress: cfg.treasuryAddress,
-        slippage: Number(process.env.GASLESS_RANGO_SLIPPAGE ?? '5.0'),
+        slippage: Number(this.config.get<string>('GASLESS_RANGO_SLIPPAGE') ?? '5.0'),
       });
 
       if (!swap.evmTransaction) {

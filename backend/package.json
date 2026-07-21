@@ -48,6 +48,7 @@
     "ethers": "^6.13.4",
     "ioredis": "5.6.1",
     "js-sha3": "^0.9.3",
+    "js-yaml": "^4.1.0",
     "pg": "8.13.1",
     "reflect-metadata": "0.2.2",
     "rxjs": "7.8.1",
@@ -62,6 +63,7 @@
     "@nestjs/testing": "11.0.8",
     "@types/express": "5.0.0",
     "@types/jest": "29.5.14",
+    "@types/js-yaml": "^4.0.9",
     "@types/node": "22.13.4",
     "@types/supertest": "6.0.2",
     "@types/uuid": "10.0.0",
@@ -96,6 +98,9 @@
     "transformIgnorePatterns": [
       "/node_modules/(?!(@solana|rpc-websockets|superstruct|jayson)/)"
     ],
-    "testPathIgnorePatterns": ["/node_modules/", "common/chain/"]
+    "testPathIgnorePatterns": [
+      "/node_modules/",
+      "common/chain/"
+    ]
   }
 }

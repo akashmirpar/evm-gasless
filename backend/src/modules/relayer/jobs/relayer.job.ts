@@ -1,4 +1,5 @@
 import { Injectable } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 
 import { PlutonHttpException, PlutonSystemException } from '../../../common/errors/pluton_exception';
 import { startSystemTransaction } from '../../../core/context/context';
@@ -28,16 +29,17 @@ export class RelayerJob extends ScheduledRowProcessor<
     private readonly scheduler: SchedulerService,
     private readonly relayer: RelayerService,
     private readonly executor: EvmExecutorService,
+    private readonly config: ConfigService,
   ) {
     super();
-    const cron = process.env.RELAYER_CRON ?? DEFAULT_CRON;
+    const cron = this.config.get<string>('RELAYER_CRON') ?? DEFAULT_CRON;
     this.scheduler.register(SchedulerName.EvmRelayer, this, cron);
   }
 
   resolveRetryPolicy(_row: TransactionRequestEntity): RetryPolicy {
     return {
-      maxRetryTimes: Number(process.env.RELAYER_MAX_RETRIES ?? '6'),
-      baseDelayMs: Number(process.env.RELAYER_RETRY_BASE_MS ?? '5000'),
+      maxRetryTimes: Number(this.config.get<string>('RELAYER_MAX_RETRIES') ?? '6'),
+      baseDelayMs: Number(this.config.get<string>('RELAYER_RETRY_BASE_MS') ?? '5000'),
       exponentialRate: 2,
     };
   }

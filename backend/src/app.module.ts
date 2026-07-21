@@ -1,6 +1,7 @@
 import KeyvRedis from '@keyv/redis';
 import { CacheModule } from '@nestjs/cache-manager';
 import { Module, ValidationPipe } from '@nestjs/common';
+import { ConfigModule, ConfigService } from '@nestjs/config';
 import { APP_FILTER, APP_INTERCEPTOR, APP_PIPE } from '@nestjs/core';
 import { EventEmitterModule } from '@nestjs/event-emitter';
 import { ScheduleModule } from '@nestjs/schedule';
@@ -8,6 +9,7 @@ import { TypeOrmModule } from '@nestjs/typeorm';
 
 import { AllExceptionsFilter } from './common/filters/all_exceptions.filter';
 import { ResponseInterceptor } from './common/interceptors/response.interceptor';
+import { loadConfig } from './config';
 import { RequestContextInterceptor } from './core/context/context.interceptor';
 import { ChainConfigModule } from './core/chain_config/chain_config.module';
 import { AppDataSource, buildDataSourceOptions } from './core/database/data-source';
@@ -24,6 +26,14 @@ import { RelayerSolanaModule } from './modules/relayer-solana/relayer-solana.mod
 
 @Module({
   imports: [
+    // Single source of truth: the merged yaml + secret map (src/config) is
+    // loaded here and consumed everywhere via ConfigService. `ignoreEnvFile`
+    // keeps process.env out of the picture — config comes only from loadConfig.
+    ConfigModule.forRoot({
+      load: [loadConfig],
+      isGlobal: true,
+      ignoreEnvFile: true,
+    }),
     TypeOrmModule.forRootAsync({
       useFactory: () => buildDataSourceOptions(),
       dataSourceFactory: async () => {
@@ -35,14 +45,15 @@ import { RelayerSolanaModule } from './modules/relayer-solana/relayer-solana.mod
     }),
     CacheModule.registerAsync({
       isGlobal: true,
-      useFactory: () => {
-        const host = process.env.REDIS_HOST ?? '127.0.0.1';
-        const port = Number(process.env.REDIS_PORT ?? 6379);
+      inject: [ConfigService],
+      useFactory: (config: ConfigService) => {
+        const host = config.get<string>('REDIS_HOST') ?? '127.0.0.1';
+        const port = Number(config.get<string>('REDIS_PORT') ?? 6379);
         // Optional ACL username: embed it in the URL (redis://user:pass@host) so we
         // authenticate as the per-service ACL user. Unset => default user (unchanged).
-        const username = process.env.REDIS_USERNAME ?? '';
-        const password = process.env.REDIS_PASSWORD;
-        const ttlSeconds = Number(process.env.REDIS_DEFAULT_TTL_SECONDS ?? 300);
+        const username = config.get<string>('REDIS_USERNAME') ?? '';
+        const password = config.get<string>('REDIS_PASSWORD');
+        const ttlSeconds = Number(config.get<string>('REDIS_DEFAULT_TTL_SECONDS') ?? 300);
         const auth = password ? `${encodeURIComponent(username)}:${encodeURIComponent(password)}@` : '';
         const url = `redis://${auth}${host}:${port}`;
         const keyvRedis = new KeyvRedis({

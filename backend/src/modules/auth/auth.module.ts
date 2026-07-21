@@ -1,4 +1,5 @@
 import { Logger, Module } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import Redis from 'ioredis';
 
@@ -15,15 +16,16 @@ import { RATE_LIMIT_REDIS, RateLimiterService } from './services/rate_limiter.se
     RateLimiterService,
     {
       provide: RATE_LIMIT_REDIS,
-      useFactory: () => {
+      inject: [ConfigService],
+      useFactory: (config: ConfigService) => {
         const logger = new Logger('RateLimiterRedis');
         const client = new Redis({
-          host: process.env.REDIS_HOST ?? '127.0.0.1',
-          port: Number(process.env.REDIS_PORT ?? 6379),
+          host: config.get<string>('REDIS_HOST') ?? '127.0.0.1',
+          port: Number(config.get<string>('REDIS_PORT') ?? 6379),
           // Optional ACL username: when the shared Redis enforces per-service ACL
           // users, authenticate as that user (AUTH <user> <pass>). Unset => default.
-          username: process.env.REDIS_USERNAME || undefined,
-          password: process.env.REDIS_PASSWORD || undefined,
+          username: config.get<string>('REDIS_USERNAME') || undefined,
+          password: config.get<string>('REDIS_PASSWORD') || undefined,
           connectTimeout: 1_500,
           maxRetriesPerRequest: 1,
           enableOfflineQueue: false,

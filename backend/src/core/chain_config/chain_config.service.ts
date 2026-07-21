@@ -1,4 +1,5 @@
 import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { readFileSync, existsSync } from 'fs';
 import { dirname, join, parse as parsePath } from 'path';
 
@@ -22,13 +23,15 @@ export class ChainConfigService implements OnModuleInit {
   private readonly logger = new Logger(ChainConfigService.name);
   private chains = new Map<number, ChainConfig>();
 
+  constructor(private readonly config: ConfigService) {}
+
   onModuleInit(): void {
     this.load();
   }
 
   load(): void {
-    const chainsJsonPath = (process.env.CHAINS_JSON_PATH?.trim() || ChainConfigService.findChainsJson(__dirname));
-    const deployedJsonPath = (process.env.DEPLOYED_JSON_PATH?.trim() || join(dirname(chainsJsonPath), 'deployed.json'));
+    const chainsJsonPath = (this.config.get<string>('CHAINS_JSON_PATH')?.trim() || ChainConfigService.findChainsJson(__dirname));
+    const deployedJsonPath = (this.config.get<string>('DEPLOYED_JSON_PATH')?.trim() || join(dirname(chainsJsonPath), 'deployed.json'));
     this.logger.log(`reading chains config from ${chainsJsonPath}; deployed from ${deployedJsonPath}`);
 
     if (!existsSync(chainsJsonPath)) {
@@ -40,8 +43,8 @@ export class ChainConfigService implements OnModuleInit {
       ? (JSON.parse(readFileSync(deployedJsonPath, 'utf8')) as Record<string, string>)
       : {};
 
-    const evmTreasury = (process.env.GASLESS_TREASURY_ADDRESS ?? '').trim();
-    const solanaTreasury = (process.env.GASLESS_SOLANA_TREASURY_ADDRESS ?? '').trim();
+    const evmTreasury = (this.config.get<string>('GASLESS_TREASURY_ADDRESS') ?? '').trim();
+    const solanaTreasury = (this.config.get<string>('GASLESS_SOLANA_TREASURY_ADDRESS') ?? '').trim();
     if (!evmTreasury) {
       this.logger.warn('GASLESS_TREASURY_ADDRESS not set — EVM endpoints that need it will fail');
     }
@@ -50,7 +53,7 @@ export class ChainConfigService implements OnModuleInit {
     // drop lands in a follow-up card there). EVM chains derive their accepted
     // list directly from chains.json.
     const legacyAcceptedSet = new Set(
-      (process.env.GASLESS_ACCEPTED_FEE_TOKENS ?? '')
+      (this.config.get<string>('GASLESS_ACCEPTED_FEE_TOKENS') ?? '')
         .split(',')
         .map((s) => s.trim().toLowerCase())
         .filter((s) => s.length > 0),
@@ -63,7 +66,7 @@ export class ChainConfigService implements OnModuleInit {
         registerNonEvmChain(c.chainId, networkType);
       }
 
-      const override = (process.env[c.envRpcVar] ?? '')
+      const override = (this.config.get<string>(c.envRpcVar) ?? '')
         .split(',')
         .map((s) => s.trim())
         .filter((s) => s.length > 0);

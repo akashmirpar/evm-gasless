@@ -1,4 +1,5 @@
 import { Injectable, Logger } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import BigNumber from 'bignumber.js';
 
 import { PlutonException } from '../../../common/errors';
@@ -61,9 +62,10 @@ export class FeeEstimatorService {
     private readonly rpc: RpcService,
     private readonly rango: RangoClient,
     private readonly tokenMetadata: TokenMetadataService,
+    private readonly config: ConfigService,
   ) {
-    this.baseFeeMarkupPercent = readPositiveNumber(process.env.GASLESS_BASE_FEE_MARKUP_PERCENT, 15, 'GASLESS_BASE_FEE_MARKUP_PERCENT');
-    this.defaultGasUnits = readPositiveBigInt(process.env.GASLESS_DEFAULT_GAS_UNITS, 1_500_000n, 'GASLESS_DEFAULT_GAS_UNITS');
+    this.baseFeeMarkupPercent = readPositiveNumber(this.config.get<string>('GASLESS_BASE_FEE_MARKUP_PERCENT'), 15, 'GASLESS_BASE_FEE_MARKUP_PERCENT');
+    this.defaultGasUnits = readPositiveBigInt(this.config.get<string>('GASLESS_DEFAULT_GAS_UNITS'), 1_500_000n, 'GASLESS_DEFAULT_GAS_UNITS');
   }
 
   async estimate(chainId: number, userAddress: string, feeTokenAddress: string, ops: UserOpDto[]): Promise<FeeEstimate> {
@@ -136,7 +138,7 @@ export class FeeEstimatorService {
       throw PlutonException(GaslessErrors.FeeTokenNotAcceptedAndNoRoute, { reason: 'inverse quote returned zero output' });
     }
 
-    const slippagePct = readPositiveNumber(process.env.GASLESS_RANGO_SLIPPAGE, 5.0, 'GASLESS_RANGO_SLIPPAGE') * 2;
+    const slippagePct = readPositiveNumber(this.config.get<string>('GASLESS_RANGO_SLIPPAGE'), 5.0, 'GASLESS_RANGO_SLIPPAGE') * 2;
     const feeAmountInFeeToken = inverseQuote.outputAmount
       .multipliedBy(100 + slippagePct)
       .dividedBy(100)

@@ -1,4 +1,5 @@
 import { Injectable, Logger, OnApplicationBootstrap } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { SchedulerRegistry } from '@nestjs/schedule';
 import { CronJob } from 'cron';
 
@@ -15,10 +16,13 @@ export class SchedulerService implements OnApplicationBootstrap {
   private readonly logger = new Logger(SchedulerService.name);
   private readonly jobs = new Map<SchedulerName, JobRegistration>();
 
-  constructor(private readonly registry: SchedulerRegistry) {}
+  constructor(
+    private readonly registry: SchedulerRegistry,
+    private readonly config: ConfigService,
+  ) {}
 
   register(name: SchedulerName, job: BaseJob, defaultCronTime: string): void {
-    const override = process.env[timeOverrideEnvKey(name)];
+    const override = this.config.get<string>(timeOverrideEnvKey(name));
     const cronTime = override && override.trim().length > 0 ? override.trim() : defaultCronTime;
     this.jobs.set(name, { job, cronTime });
   }

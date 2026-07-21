@@ -1,4 +1,5 @@
 import { Injectable } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { LessThanOrEqual, In, IsNull, Or } from 'typeorm';
 
 import { IContext, ISystemContext } from '../../core/context/context';
@@ -21,14 +22,16 @@ export interface InsertParams {
 
 @Injectable()
 export class RelayerService {
+  constructor(private readonly config: ConfigService) {}
+
   async insertPending(ctx: IContext, params: InsertParams): Promise<TransactionRequestEntity> {
     const entity = ctx.tx.manager.create(TransactionRequestEntity, {
       ...params,
       status: TransactionRequestStatus.PENDING,
       retryTimes: 0,
       nextRetryTime: new Date(),
-      maxRetryTimes: Number(process.env.RELAYER_MAX_RETRIES ?? '6'),
-      baseDelayMs: Number(process.env.RELAYER_RETRY_BASE_MS ?? '5000'),
+      maxRetryTimes: Number(this.config.get<string>('RELAYER_MAX_RETRIES') ?? '6'),
+      baseDelayMs: Number(this.config.get<string>('RELAYER_RETRY_BASE_MS') ?? '5000'),
       exponentialRate: 2,
       txHash: null,
       broadcastRpcUrl: null,

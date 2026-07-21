@@ -1,4 +1,5 @@
 import { Injectable, Logger } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import axios, { AxiosInstance, isAxiosError } from 'axios';
 import BigNumber from 'bignumber.js';
 
@@ -50,14 +51,14 @@ export class RangoHttpClient extends RangoClient {
   private readonly http: AxiosInstance;
   private readonly apiKey: string;
 
-  constructor() {
+  constructor(private readonly config: ConfigService) {
     super();
-    const baseUrl = (process.env.RANGO_API_URL ?? 'https://api.rango.exchange').replace(/\/$/, '');
-    this.apiKey = (process.env.RANGO_API_KEY ?? '').trim();
+    const baseUrl = (this.config.get<string>('RANGO_API_URL') ?? 'https://api.rango.exchange').replace(/\/$/, '');
+    this.apiKey = (this.config.get<string>('RANGO_API_KEY') ?? '').trim();
     // Rango's /basic/quote is intermittently slow (10-25s tail latencies
     // observed 2026-07-11). Env-overridable; default 30s survives the
     // typical p99 while still capping runaway hangs.
-    this.http = axios.create({ baseURL: baseUrl, timeout: Number(process.env.RANGO_HTTP_TIMEOUT_MS ?? '30000') });
+    this.http = axios.create({ baseURL: baseUrl, timeout: Number(this.config.get<string>('RANGO_HTTP_TIMEOUT_MS') ?? '30000') });
   }
 
   async quote(req: RangoQuoteRequest): Promise<RangoQuoteResult> {

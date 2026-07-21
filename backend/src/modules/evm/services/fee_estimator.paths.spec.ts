@@ -1,3 +1,4 @@
+import type { ConfigService } from '@nestjs/config';
 import BigNumber from 'bignumber.js';
 
 import { FeeEstimatorService } from './fee_estimator.service';
@@ -56,7 +57,7 @@ function makeEstimator(opts: {
     getSymbolBestEffort: jest.fn(async () => '?'),
   };
 
-  const svc = new FeeEstimatorService(chainConfig, rpc, rango, tokenMetadata as never);
+  const svc = new FeeEstimatorService(chainConfig, rpc, rango, tokenMetadata as never, { get: () => undefined } as unknown as ConfigService);
   return { svc, rango, tokenMetadata, quoteCalls };
 }
 

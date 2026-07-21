@@ -1,4 +1,5 @@
 import { Injectable, Logger } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { Interface, JsonRpcProvider, Signature, Transaction, Wallet, parseUnits } from 'ethers';
 
 import { PlutonException } from '../../../common/errors';
@@ -29,10 +30,11 @@ export class EvmExecutorService {
   constructor(
     private readonly chainConfig: ChainConfigService,
     private readonly rpc: RpcService,
+    private readonly config: ConfigService,
   ) {}
 
   private get operatorWallet(): Wallet {
-    const pk = (process.env.OPERATOR_PRIVATE_KEY ?? '').trim();
+    const pk = (this.config.get<string>('OPERATOR_PRIVATE_KEY') ?? '').trim();
     if (!pk) throw new Error('OPERATOR_PRIVATE_KEY missing');
     return new Wallet(pk);
   }
@@ -80,7 +82,7 @@ export class EvmExecutorService {
         type: useType4 ? 4 : 2,
         chainId: req.chainId,
         nonce: ownerNonce,
-        gasLimit: BigInt(process.env.GASLESS_TX_GAS_LIMIT ?? '2000000'),
+        gasLimit: BigInt(this.config.get<string>('GASLESS_TX_GAS_LIMIT') ?? '2000000'),
         maxFeePerGas,
         maxPriorityFeePerGas,
         authorizationList: useType4 ? [this.toAuthorizationStruct(req)] : undefined,
