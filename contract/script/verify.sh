@@ -14,8 +14,19 @@ set -euo pipefail
 here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 contract_dir="$(cd "$here/.." && pwd)"
 chains_dir="$(cd "$contract_dir/../chains" && pwd)"
-chains_json="$chains_dir/chains.json"
+backend_dir="$(cd "$contract_dir/../backend" && pwd)"
+config_yaml="$backend_dir/config.yaml"
 deployed_json="$chains_dir/deployed.json"
+
+# chainId -> name map from the config.yaml registry (single source of truth).
+chain_names_json="$(cd "$backend_dir" && node -e '
+const { load } = require("js-yaml");
+const fs = require("fs");
+const cfg = load(fs.readFileSync(process.argv[1], "utf8")) || {};
+const map = {};
+for (const c of cfg.chains || []) map[String(c.chainId)] = c.name;
+process.stdout.write(JSON.stringify(map));
+' "$config_yaml")"
 
 if [[ -f "$contract_dir/.env" ]]; then
   set -a
@@ -39,9 +50,9 @@ for entry in $(jq -r 'to_entries[] | "\(.key)=\(.value)"' "$deployed_json"); do
   chain_id="${entry%%=*}"
   address="${entry#*=}"
 
-  name="$(jq -r --argjson id "$chain_id" '.chains[] | select(.chainId == $id) | .name' "$chains_json")"
+  name="$(echo "$chain_names_json" | jq -r --arg id "$chain_id" '.[$id] // empty')"
   if [[ -z "$name" ]]; then
-    echo "chain id $chain_id not in chains.json; skipping"
+    echo "chain id $chain_id not in config.yaml; skipping"
     continue
   fi
 

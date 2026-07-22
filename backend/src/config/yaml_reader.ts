@@ -63,6 +63,41 @@ function expandVars(input: unknown, secrets: Record<string, string>): unknown {
   });
 }
 
+function parseYamlFile(): Record<string, unknown> {
+  const absolute = resolve(configPath);
+  if (!existsSync(absolute)) return {};
+  const parsed = parseYaml(readFileSync(absolute, 'utf8'));
+  return parsed && typeof parsed === 'object' ? (parsed as Record<string, unknown>) : {};
+}
+
+/** Recursively expand `${VAR}` in every string leaf, preserving array/object shape. */
+function expandDeep(input: unknown, secrets: Record<string, string>): unknown {
+  if (typeof input === 'string') return expandVars(input, secrets);
+  if (Array.isArray(input)) return input.map((v) => expandDeep(v, secrets));
+  if (input !== null && typeof input === 'object') {
+    const out: Record<string, unknown> = {};
+    for (const [k, v] of Object.entries(input as Record<string, unknown>)) {
+      out[k] = expandDeep(v, secrets);
+    }
+    return out;
+  }
+  return input;
+}
+
+/**
+ * Structured `chains:` section from config.yaml with `${VAR}` (e.g. the RPC
+ * provider key `${ANKR_API_KEY}`) expanded against the secret file / env. The
+ * chain registry is nested config that doesn't fit the flat UPPER_SNAKE map, so
+ * ChainConfigService reads it through here instead of `loadConfig()`.
+ */
+export function loadChainsConfig(): unknown[] {
+  const yamlMap = parseYamlFile();
+  const chains = yamlMap['chains'];
+  if (!Array.isArray(chains)) return [];
+  const secrets = readSecretConfig();
+  return expandDeep(chains, secrets) as unknown[];
+}
+
 /** Stage the path for the config file. Must be called before app.module is imported. */
 export function yamlReader(path: string) {
   configPath = path;

@@ -3,6 +3,7 @@ import { ConfigService } from '@nestjs/config';
 import { readFileSync, existsSync } from 'fs';
 import { dirname, join, parse as parsePath } from 'path';
 
+import { loadChainsConfig } from '../../config/yaml_reader';
 import { PlutonException } from '../../common/errors';
 import { NetworkType, registerNonEvmChain } from '../../common/utils/network_type';
 import { ChainConfigErrors } from './chain_config.errors';
@@ -30,15 +31,13 @@ export class ChainConfigService implements OnModuleInit {
   }
 
   load(): void {
-    const chainsJsonPath = (this.config.get<string>('CHAINS_JSON_PATH')?.trim() || ChainConfigService.findChainsJson(__dirname));
-    const deployedJsonPath = (this.config.get<string>('DEPLOYED_JSON_PATH')?.trim() || join(dirname(chainsJsonPath), 'deployed.json'));
-    this.logger.log(`reading chains config from ${chainsJsonPath}; deployed from ${deployedJsonPath}`);
-
-    if (!existsSync(chainsJsonPath)) {
-      throw new Error(`chains.json not found at ${chainsJsonPath}`);
+    const chains = loadChainsConfig() as ChainsJsonShape['chains'];
+    if (chains.length === 0) {
+      throw new Error('no chains defined — add a `chains:` section to config.yaml');
     }
+    const deployedJsonPath = (this.config.get<string>('DEPLOYED_JSON_PATH')?.trim() || ChainConfigService.findDeployedJson(__dirname));
+    this.logger.log(`reading ${chains.length} chains from config.yaml; deployed from ${deployedJsonPath}`);
 
-    const raw = JSON.parse(readFileSync(chainsJsonPath, 'utf8')) as ChainsJsonShape;
     const deployed: Record<string, string> = existsSync(deployedJsonPath)
       ? (JSON.parse(readFileSync(deployedJsonPath, 'utf8')) as Record<string, string>)
       : {};
@@ -51,7 +50,7 @@ export class ChainConfigService implements OnModuleInit {
 
     // Env-var-driven accepted list is retained only for Solana (the whitelist
     // drop lands in a follow-up card there). EVM chains derive their accepted
-    // list directly from chains.json.
+    // list directly from the yaml chain entry.
     const legacyAcceptedSet = new Set(
       (this.config.get<string>('GASLESS_ACCEPTED_FEE_TOKENS') ?? '')
         .split(',')
@@ -60,17 +59,18 @@ export class ChainConfigService implements OnModuleInit {
     );
 
     const out = new Map<number, ChainConfig>();
-    for (const c of raw.chains) {
+    for (const c of chains) {
       const networkType: NetworkType = c.networkType === 'SOLANA' ? NetworkType.SOLANA : NetworkType.EVM;
       if (networkType !== NetworkType.EVM) {
         registerNonEvmChain(c.chainId, networkType);
       }
 
-      const override = (this.config.get<string>(c.envRpcVar) ?? '')
-        .split(',')
+      const rpcUrls = (c.rpcUrls ?? [])
         .map((s) => s.trim())
         .filter((s) => s.length > 0);
-      const rpcUrls = override.length > 0 ? override : c.defaultRpcs;
+      if (rpcUrls.length === 0) {
+        throw new Error(`config.yaml chain ${c.chainId} (${c.name}) has no rpcUrls`);
+      }
 
       const isEvm = networkType === NetworkType.EVM;
       const delegateAddress = isEvm
@@ -124,18 +124,18 @@ export class ChainConfigService implements OnModuleInit {
     const accepted = (c.acceptedFeeTokens ?? []).map((a) => a.trim().toLowerCase()).filter((s) => s.length > 0);
     if (accepted.length === 0) {
       throw new Error(
-        `chains.json: EVM chain ${c.chainId} (${c.name}) missing "acceptedFeeTokens" — this shape is required after the whitelist-drop refactor. See RIN-113.`,
+        `config.yaml: EVM chain ${c.chainId} (${c.name}) missing "acceptedFeeTokens" — this shape is required after the whitelist-drop refactor. See RIN-113.`,
       );
     }
     const main = (c.mainFeeToken ?? '').trim().toLowerCase();
     if (!main) {
       throw new Error(
-        `chains.json: EVM chain ${c.chainId} (${c.name}) missing "mainFeeToken" — required target token for the swap-fee path.`,
+        `config.yaml: EVM chain ${c.chainId} (${c.name}) missing "mainFeeToken" — required target token for the swap-fee path.`,
       );
     }
     if (!accepted.includes(main)) {
       throw new Error(
-        `chains.json: EVM chain ${c.chainId} (${c.name}) mainFeeToken ${main} is not in acceptedFeeTokens — the swap target must itself be an accepted token to keep the direct-accept path valid for it.`,
+        `config.yaml: EVM chain ${c.chainId} (${c.name}) mainFeeToken ${main} is not in acceptedFeeTokens — the swap target must itself be an accepted token to keep the direct-accept path valid for it.`,
       );
     }
     return { acceptedFeeTokenAddresses: accepted, mainFeeTokenAddress: main };
@@ -158,7 +158,7 @@ export class ChainConfigService implements OnModuleInit {
     const accepted = matches.length > 0 ? matches.map((t) => t.address) : tokens.map((t) => t.address);
     if (accepted.length === 0) {
       throw new Error(
-        `chains.json: Solana chain ${c.chainId} (${c.name}) has no accepted fee tokens — either the tokens map is empty or the ` +
+        `config.yaml: Solana chain ${c.chainId} (${c.name}) has no accepted fee tokens — either the tokens map is empty or the ` +
           `GASLESS_ACCEPTED_FEE_TOKENS env var filters everything out. Add at least one accepted SPL to continue.`,
       );
     }
@@ -213,14 +213,14 @@ export class ChainConfigService implements OnModuleInit {
     return c.acceptedFeeTokenAddresses.includes(address.toLowerCase());
   }
 
-  private static findChainsJson(startDir: string): string {
+  private static findDeployedJson(startDir: string): string {
     const { root } = parsePath(startDir);
     let dir = startDir;
     while (true) {
-      const candidate = join(dir, 'chains', 'chains.json');
+      const candidate = join(dir, 'chains', 'deployed.json');
       if (existsSync(candidate)) return candidate;
       if (dir === root) {
-        throw new Error(`could not find chains/chains.json walking up from ${startDir}; set CHAINS_JSON_PATH`);
+        return join(startDir, 'chains', 'deployed.json');
       }
       dir = dirname(dir);
     }

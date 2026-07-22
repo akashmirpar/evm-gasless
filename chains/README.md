@@ -1,22 +1,28 @@
 # gasless/chains
 
-Single source of truth for the supported chains. Read by both the Foundry deploy script and the NestJS backend.
+## Chain registry
 
-## `chains.json`
+The supported-chain registry lives in `backend/config.yaml` under the `chains:`
+section (single source of truth, read by both the NestJS backend and the Foundry
+deploy/verify scripts via a small js-yaml bridge).
 
 | Field | Meaning |
 |-------|---------|
-| `chainId` | EVM chain id. |
-| `name` | Lowercase short name. Used in env var prefixes (e.g. `BSC_*`). |
+| `chainId` | Chain id (negative sentinels for non-EVM, e.g. Solana `-100`). |
+| `name` | Lowercase short name. |
 | `displayName` | Human-readable. |
-| `nativeSymbol`, `nativeDecimals` | Native gas token (BNB, ETH). |
+| `nativeSymbol`, `nativeDecimals` | Native gas token (BNB, ETH, SOL). |
+| `networkType` | `SOLANA` for Solana chains; omitted/`EVM` otherwise. |
 | `rangoChainName` | Chain name expected by the Rango Exchange API. |
-| `defaultRpcs` | Free public RPCs, tried in order. Override at runtime by setting `<envRpcVar>` (comma-separated list) — those run first, defaults are appended as fallbacks. |
-| `tokens` | Canonical fee tokens (USDT, USDC) on this chain. Address + decimals. |
-| `envRpcVar` | Name of the env var for runtime RPC overrides. |
+| `rpcUrls` | RPC endpoints tried in order. The first entry is the keyed provider endpoint (`${ANKR_API_KEY}` interpolated from the secret file); the rest are keyless public fallbacks. |
+| `acceptedFeeTokens`, `mainFeeToken` | EVM fee-path config. |
+| `tokens` | Solana SPL fee tokens (symbol → address + decimals). |
 
 ## Deployed contract addresses
 
-Written by the deploy script (`gasless/contract/script/Deploy.s.sol`) to `gasless/chains/deployed.json` after each chain deploy. The backend reads this file to learn the delegation contract address for each chain.
+`deployed.json` is written by the deploy script (`gasless/contract/script/deploy.sh`)
+to `gasless/chains/deployed.json` after each chain deploy, keyed by chainId. The
+backend reads it to learn the delegate contract address per chain.
 
-`deployed.json` is generated (not hand-edited). Commit it; treat it as the canonical record.
+`deployed.json` is generated (not hand-edited). Commit it; treat it as the
+canonical record.

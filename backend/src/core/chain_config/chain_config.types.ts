@@ -31,8 +31,7 @@ export interface ChainsJsonShape {
     nativeDecimals: number;
     networkType?: 'EVM' | 'SOLANA';
     rangoChainName: string;
-    defaultRpcs: string[];
-    envRpcVar: string;
+    rpcUrls: string[];
     acceptedFeeTokens?: string[];
     mainFeeToken?: string;
     tokens?: Record<string, { address: string; decimals: number }>;

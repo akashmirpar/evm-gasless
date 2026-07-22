@@ -8,7 +8,7 @@ NestJS service that accepts user-defined EVM operations, returns a signable EIP-
 src/
 ├── common/                conventions infra (errors, base entities, address, utils)
 ├── core/
-│   ├── chain_config/      reads gasless/chains/chains.json + deployed.json + env overrides
+│   ├── chain_config/      reads the config.yaml `chains:` registry + gasless/chains/deployed.json
 │   ├── context/           IContext / RequestContext / SystemContext + transitionStatus()
 │   ├── database/          TypeORM data source + migrations
 │   ├── fsm/               StateMachine<S, A>, transitionStatus()
@@ -160,9 +160,9 @@ The on-chain contract treats `executeBatch` as permissionless (any address can s
 
 See [.env.example](.env.example). The most important groups:
 
-- `OPERATOR_PRIVATE_KEY` + `GASLESS_TREASURY_ADDRESS` — operator identity. The treasury is what `ops[0]` pays into in the accepted-token case (and the recipient passed to Rango in the unsupported-token case).
+- `OPERATOR_MNEMONIC` (+ optional `OPERATOR_MNEMONIC_INDEX`) + `GASLESS_TREASURY_ADDRESS` — operator identity. One BIP-39 mnemonic derives both the EVM (`m/44'/60'/0'/0/{index}`) and Solana (`m/44'/501'/{index}'/0'`) operators. The treasury is what `ops[0]` pays into in the accepted-token case (and the recipient passed to Rango in the unsupported-token case).
 - `GASLESS_ACCEPTED_FEE_TOKENS` — comma-separated list of `chainId:SYMBOL` or `0xtoken` entries. Tokens matching any entry on a given chain are treated as directly accepted (no swap). Everything else triggers the Rango path.
-- `<CHAIN>_RPC_URLS` — comma-separated overrides per chain. The defaults in [../chains/chains.json](../chains/chains.json) are appended as fallbacks. RPC failure cascades through the list until one succeeds.
+- RPC endpoints live in the config.yaml `chains:` registry (`rpcUrls` per chain); only the provider key `${ANKR_API_KEY}` is a secret. RPC failure cascades through the list until one succeeds.
 - `RELAYER_CRON` / `RELAYER_MAX_RETRIES` / `RELAYER_RETRY_*_MS` — tune poll frequency, retry cap, backoff.
 
 ## Development

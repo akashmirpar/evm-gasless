@@ -3,7 +3,7 @@ import { tmpdir } from 'os';
 import { join } from 'path';
 
 import { __resetSecretCache } from './secret_reader';
-import { __resetConfigCache, loadConfig, yamlReader } from './yaml_reader';
+import { __resetConfigCache, loadChainsConfig, loadConfig, yamlReader } from './yaml_reader';
 
 describe('yamlReader / loadConfig', () => {
   beforeEach(() => {
@@ -158,6 +158,49 @@ describe('yamlReader / loadConfig', () => {
     expect(moduleRef.get(ConfigService).get('DATABASE_POSTGRES_HOST')).toBe('secret-host');
 
     delete process.env.DATABASE_POSTGRES_HOST;
+    delete process.env.GASLESS_ENV_FILE;
+  });
+
+  it('loadChainsConfig() parses the chains: registry and interpolates ${ANKR_API_KEY} into rpcUrls', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'gasless-cfg-'));
+    const yamlPath = join(dir, 'config.yaml');
+    const envPath = join(dir, 'env');
+    writeFileSync(
+      yamlPath,
+      [
+        'chains:',
+        '  - chainId: 56',
+        "    name: 'bsc'",
+        '    rpcUrls:',
+        "      - 'https://rpc.ankr.com/bsc/${ANKR_API_KEY}'",
+        "      - 'https://bsc-rpc.publicnode.com'",
+      ].join('\n')
+    );
+    writeFileSync(envPath, 'ANKR_API_KEY=secretkey\n');
+    process.env.GASLESS_ENV_FILE = envPath;
+
+    yamlReader(yamlPath);
+    const chains = loadChainsConfig() as Array<{ chainId: number; name: string; rpcUrls: string[] }>;
+
+    expect(chains).toHaveLength(1);
+    expect(chains[0].chainId).toBe(56);
+    expect(chains[0].rpcUrls[0]).toBe('https://rpc.ankr.com/bsc/secretkey');
+    expect(chains[0].rpcUrls[1]).toBe('https://bsc-rpc.publicnode.com');
+
+    delete process.env.GASLESS_ENV_FILE;
+  });
+
+  it('loadChainsConfig() returns [] when no chains: section is present', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'gasless-cfg-'));
+    const yamlPath = join(dir, 'config.yaml');
+    const emptySecrets = join(dir, 'empty.env');
+    writeFileSync(emptySecrets, '');
+    writeFileSync(yamlPath, ['service:', "  port: '3100'"].join('\n'));
+    process.env.GASLESS_ENV_FILE = emptySecrets;
+
+    yamlReader(yamlPath);
+    expect(loadChainsConfig()).toEqual([]);
+
     delete process.env.GASLESS_ENV_FILE;
   });
 });
