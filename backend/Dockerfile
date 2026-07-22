@@ -46,11 +46,11 @@ COPY --from=builder --chown=node:node /app/dist         ./dist
 COPY --chown=node:node backend/package.json ./package.json
 COPY --chown=node:node chains               ./chains
 
-# Default config. main.ts reads ./config.yaml (PLUTON_CONFIG / --config override
-# it); secrets are injected separately via /run/secrets/pluton_env and override
+# Default config. main.ts reads ./config.yaml (GASLESS_CONFIG / --config override
+# it); secrets are injected separately via /run/secrets/gasless_env and override
 # any value here. Mount your own config.yaml over this to change non-secret
 # defaults without rebuilding.
-COPY --chown=node:node backend/sample.config.yaml ./config.yaml
+COPY --chown=node:node backend/config.yaml ./config.yaml
 
 USER node
 EXPOSE 3100

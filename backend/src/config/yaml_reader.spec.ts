@@ -29,7 +29,7 @@ describe('yamlReader / loadConfig', () => {
     process.env.REDIS_DEFAULT_TTL_SECONDS = '600';
     // Pin the secrets file so the ambient ./.env in dev environments
     // doesn't bleed in and override the values we're asserting on.
-    process.env.PLUTON_ENV_FILE = emptySecrets;
+    process.env.GASLESS_ENV_FILE = emptySecrets;
 
     yamlReader(yamlPath);
     const cfg = loadConfig();
@@ -39,7 +39,7 @@ describe('yamlReader / loadConfig', () => {
 
     delete process.env.SERVICE_PORT;
     delete process.env.REDIS_DEFAULT_TTL_SECONDS;
-    delete process.env.PLUTON_ENV_FILE;
+    delete process.env.GASLESS_ENV_FILE;
   });
 
   it('keeps literal YAML defaults as strings (no ${...} indirection needed)', () => {
@@ -51,7 +51,7 @@ describe('yamlReader / loadConfig', () => {
       yamlPath,
       ['gasless:', "  createTtlSeconds: '90'", 'solana:', "  modeDefault: 'single'"].join('\n')
     );
-    process.env.PLUTON_ENV_FILE = emptySecrets;
+    process.env.GASLESS_ENV_FILE = emptySecrets;
 
     yamlReader(yamlPath);
     const cfg = loadConfig();
@@ -59,7 +59,7 @@ describe('yamlReader / loadConfig', () => {
     expect(cfg.GASLESS_CREATE_TTL_SECONDS).toBe('90');
     expect(cfg.SOLANA_MODE_DEFAULT).toBe('single');
 
-    delete process.env.PLUTON_ENV_FILE;
+    delete process.env.GASLESS_ENV_FILE;
   });
 
   it('lets secret-file values override YAML values at the same flattened key', () => {
@@ -68,13 +68,13 @@ describe('yamlReader / loadConfig', () => {
     const envPath = join(dir, 'env');
     writeFileSync(yamlPath, ['gasless:', "  createTtlSeconds: '90'"].join('\n'));
     writeFileSync(envPath, 'GASLESS_CREATE_TTL_SECONDS=120\n');
-    process.env.PLUTON_ENV_FILE = envPath;
+    process.env.GASLESS_ENV_FILE = envPath;
 
     yamlReader(yamlPath);
     const cfg = loadConfig();
 
     expect(cfg.GASLESS_CREATE_TTL_SECONDS).toBe('120');
 
-    delete process.env.PLUTON_ENV_FILE;
+    delete process.env.GASLESS_ENV_FILE;
   });
 });
