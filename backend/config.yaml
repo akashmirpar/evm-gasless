@@ -194,10 +194,11 @@ solana:
   dynamicPriorityPercentile: '75'
   minFeeLamports: '666666'
   # Broadcast mode: `single` (classic) or `bundled` (Jito atomic bundle).
-  # bundledModeEnabled is intentionally NOT set here: resolveMode reads
-  # SOLANA_BUNDLED_MODE_ENABLED ?? 'true'. A literal default here would mask the
-  # disable path; set SOLANA_BUNDLED_MODE_ENABLED=false in the secret file / env
-  # to disable bundled mode.
+  # Declared so a deploy-time SOLANA_BUNDLED_MODE_ENABLED=false (process.env or
+  # secret file) overrides it — the config loader folds env/secret over declared
+  # YAML keys (yaml_reader.loadConfig), so a literal here no longer masks the
+  # disable path. Set to 'false' to reject explicit `bundled` requests.
+  bundledModeEnabled: 'true'
   modeDefault: 'single'
   jito:
     bundleUrl: 'https://mainnet.block-engine.jito.wtf/api/v1/bundles'

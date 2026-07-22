@@ -22,7 +22,7 @@ export interface ChainConfig {
   treasuryAddress: string;
 }
 
-export interface ChainsJsonShape {
+export interface ChainRegistryShape {
   chains: Array<{
     chainId: number;
     name: string;

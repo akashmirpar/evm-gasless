@@ -1,4 +1,4 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { HDNodeWallet, Interface, JsonRpcProvider, Signature, Transaction, Wallet, parseUnits } from 'ethers';
 
@@ -23,7 +23,7 @@ export interface PreparedTx {
 }
 
 @Injectable()
-export class EvmExecutorService {
+export class EvmExecutorService implements OnModuleInit {
   private readonly logger = new Logger(EvmExecutorService.name);
   private readonly operatorMutex = new Map<string, Promise<unknown>>();
 
@@ -33,18 +33,34 @@ export class EvmExecutorService {
     private readonly config: ConfigService,
   ) {}
 
+  /** Fail-fast: resolve the operator at boot so a missing/malformed seed is
+   * caught before the first relay, not silently during one. */
+  onModuleInit(): void {
+    this.logger.log(`evm operator address: ${this.operatorWallet.address}`);
+  }
+
   private get operatorWallet(): Wallet {
     // Preferred: one BIP-39 mnemonic drives both chains (EVM m/44'/60'/0'/0/{index},
     // Solana m/44'/501'/{index}'/0'). Raw OPERATOR_PRIVATE_KEY kept as a fallback.
+    // Declared-but-unset YAML keys resolve to '' (not undefined), so test
+    // truthiness after trim rather than nullish-coalescing.
     const mnemonic = (this.config.get<string>('OPERATOR_MNEMONIC') ?? '').trim();
     if (mnemonic) {
-      const index = Number(this.config.get<string>('OPERATOR_MNEMONIC_INDEX') ?? '0');
+      const index = EvmExecutorService.parseIndex(this.config.get<string>('OPERATOR_MNEMONIC_INDEX'));
       const hd = HDNodeWallet.fromPhrase(mnemonic, undefined, `m/44'/60'/0'/0/${index}`);
       return new Wallet(hd.privateKey);
     }
     const pk = (this.config.get<string>('OPERATOR_PRIVATE_KEY') ?? '').trim();
     if (!pk) throw new Error('operator wallet unset: provide OPERATOR_MNEMONIC or OPERATOR_PRIVATE_KEY');
     return new Wallet(pk);
+  }
+
+  private static parseIndex(raw: string | undefined): number {
+    const n = Number((raw ?? '0').trim() || '0');
+    if (!Number.isInteger(n) || n < 0) {
+      throw new Error(`OPERATOR_MNEMONIC_INDEX must be a non-negative integer, got ${raw}`);
+    }
+    return n;
   }
 
   private async withOperatorLock<T>(operatorAddress: string, fn: () => Promise<T>): Promise<T> {

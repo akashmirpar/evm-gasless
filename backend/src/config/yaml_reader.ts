@@ -173,7 +173,11 @@ export function loadConfig(): Record<string, string | number | boolean> {
 
   const secrets = readSecretConfig();
 
-  const flat = flatten(yamlMap, '', {});
+  // `chains:` is nested config read separately via loadChainsConfig(); exclude
+  // it from the flat map so we don't carry a `CHAINS` array (with an unexpanded
+  // ${ANKR_API_KEY} placeholder) as dead noise in the ConfigService map.
+  const { chains: _chains, ...flatSource } = yamlMap;
+  const flat = flatten(flatSource, '', {});
   const expanded: Record<string, string | number | boolean> = {};
   for (const [k, v] of Object.entries(flat)) {
     expanded[k] = expandVars(v, secrets) as string | number | boolean;

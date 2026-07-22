@@ -7,7 +7,7 @@ import { loadChainsConfig } from '../../config/yaml_reader';
 import { PlutonException } from '../../common/errors';
 import { NetworkType, registerNonEvmChain } from '../../common/utils/network_type';
 import { ChainConfigErrors } from './chain_config.errors';
-import { ChainConfig, ChainsJsonShape } from './chain_config.types';
+import { ChainConfig, ChainRegistryShape } from './chain_config.types';
 
 /**
  * Industry-standard sentinel address for native gas tokens (1inch, Rango,
@@ -31,7 +31,7 @@ export class ChainConfigService implements OnModuleInit {
   }
 
   load(): void {
-    const chains = loadChainsConfig() as ChainsJsonShape['chains'];
+    const chains = loadChainsConfig() as ChainRegistryShape['chains'];
     if (chains.length === 0) {
       throw new Error('no chains defined — add a `chains:` section to config.yaml');
     }
@@ -118,7 +118,7 @@ export class ChainConfigService implements OnModuleInit {
   }
 
   private static parseEvmChain(
-    c: ChainsJsonShape['chains'][number],
+    c: ChainRegistryShape['chains'][number],
     _legacyAcceptedSet: Set<string>,
   ): { acceptedFeeTokenAddresses: string[]; mainFeeTokenAddress: string } {
     const accepted = (c.acceptedFeeTokens ?? []).map((a) => a.trim().toLowerCase()).filter((s) => s.length > 0);
@@ -142,7 +142,7 @@ export class ChainConfigService implements OnModuleInit {
   }
 
   private static parseSolanaChain(
-    c: ChainsJsonShape['chains'][number],
+    c: ChainRegistryShape['chains'][number],
     legacyAcceptedSet: Set<string>,
   ): { tokens: ChainConfig['tokens']; acceptedFeeTokenAddresses: string[]; mainFeeTokenAddress: string } {
     const tokens = Object.entries(c.tokens ?? {}).map(([symbol, t]) => ({
