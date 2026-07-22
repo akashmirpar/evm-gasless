@@ -15,14 +15,14 @@ import {
   VersionedTransaction, AddressLookupTableAccount, TransactionMessage,
 } from '@solana/web3.js';
 import { JsonRpcProvider, Wallet as EvmWallet, HDNodeWallet, Contract, parseUnits, formatUnits, MaxUint256 } from 'ethers';
-
-const evmUserPk = () =>
-  process.env.E2E_USER_PRIVATE_KEY?.trim() ||
-  HDNodeWallet.fromPhrase(process.env.TEST_MNEMONIC, undefined, `m/44'/60'/0'/0/${Number(process.env.TEST_EVM_USER_INDEX ?? '0')}`).privateKey;
 import bs58 from 'bs58';
 import nacl from 'tweetnacl';
 import * as bip39 from 'bip39';
 import { derivePath } from 'ed25519-hd-key';
+
+const evmUserPk = () =>
+  process.env.E2E_USER_PRIVATE_KEY?.trim() ||
+  HDNodeWallet.fromPhrase(process.env.TEST_MNEMONIC, undefined, `m/44'/60'/0'/0/${Number(process.env.TEST_EVM_USER_INDEX ?? '0')}`).privateKey;
 
 for (const line of readFileSync(new URL('../.env', import.meta.url), 'utf8').split('\n')) {
   const m = line.match(/^([A-Z_][A-Z0-9_]*)=(.*)$/);

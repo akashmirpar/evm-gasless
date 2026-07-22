@@ -26,6 +26,7 @@ export interface PreparedTx {
 export class EvmExecutorService implements OnModuleInit {
   private readonly logger = new Logger(EvmExecutorService.name);
   private readonly operatorMutex = new Map<string, Promise<unknown>>();
+  private cachedOperator: Wallet | null = null;
 
   constructor(
     private readonly chainConfig: ChainConfigService,
@@ -40,6 +41,9 @@ export class EvmExecutorService implements OnModuleInit {
   }
 
   private get operatorWallet(): Wallet {
+    // Cache: mnemonic derivation is PBKDF2(2048)+HD, not free — resolve once
+    // rather than per prepare() call.
+    if (this.cachedOperator) return this.cachedOperator;
     // Preferred: one BIP-39 mnemonic drives both chains (EVM m/44'/60'/0'/0/{index},
     // Solana m/44'/501'/{index}'/0'). Raw OPERATOR_PRIVATE_KEY kept as a fallback.
     // Declared-but-unset YAML keys resolve to '' (not undefined), so test
@@ -48,11 +52,13 @@ export class EvmExecutorService implements OnModuleInit {
     if (mnemonic) {
       const index = EvmExecutorService.parseIndex(this.config.get<string>('OPERATOR_MNEMONIC_INDEX'));
       const hd = HDNodeWallet.fromPhrase(mnemonic, undefined, `m/44'/60'/0'/0/${index}`);
-      return new Wallet(hd.privateKey);
+      this.cachedOperator = new Wallet(hd.privateKey);
+      return this.cachedOperator;
     }
     const pk = (this.config.get<string>('OPERATOR_PRIVATE_KEY') ?? '').trim();
     if (!pk) throw new Error('operator wallet unset: provide OPERATOR_MNEMONIC or OPERATOR_PRIVATE_KEY');
-    return new Wallet(pk);
+    this.cachedOperator = new Wallet(pk);
+    return this.cachedOperator;
   }
 
   private static parseIndex(raw: string | undefined): number {

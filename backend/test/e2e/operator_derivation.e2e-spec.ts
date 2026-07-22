@@ -46,6 +46,25 @@ describe('unified operator derivation', () => {
     expect(svc.getOperatorKeypair().publicKey.toBase58()).toBe(SOL_501_5);
   });
 
+  it('REGRESSION: OPERATOR_MNEMONIC wins over a stale legacy SOLANA_OPERATOR_PRIVATE_KEY (unified seed authoritative, matches EVM precedence)', () => {
+    // base58 secret of the "abandon…" mnemonic at 501/0 — a DIFFERENT operator.
+    const STALE_PK = '27npWoNE4HfmLeQo1TyWcW7NEA28qnsnDK7kcttDQEWrCWnro83HMJ97rMmpvYYZRwDAvG4KRuB7hTBacvwD7bgi';
+    const svc = new SolanaWalletService(
+      config({ OPERATOR_MNEMONIC: TEST_MN, OPERATOR_MNEMONIC_INDEX: '0', SOLANA_OPERATOR_PRIVATE_KEY: STALE_PK }),
+    );
+    // Must derive from OPERATOR_MNEMONIC, NOT the stale legacy key.
+    expect(svc.getOperatorKeypair().publicKey.toBase58()).toBe(SOL_501_0);
+    expect(svc.getOperatorKeypair().publicKey.toBase58()).not.toBe('HAgk14JpMQLgt6rVgv7cBQFJWFto5Dqxi472uT3DKpqk');
+  });
+
+  it('REGRESSION: unified path uses OPERATOR_MNEMONIC_INDEX only, ignoring a stale SOLANA_OPERATOR_ACCOUNT_INDEX', () => {
+    const svc = new SolanaWalletService(
+      config({ OPERATOR_MNEMONIC: TEST_MN, OPERATOR_MNEMONIC_INDEX: '0', SOLANA_OPERATOR_ACCOUNT_INDEX: '5' }),
+    );
+    // Index 0 (from OPERATOR_MNEMONIC_INDEX), not 5 (stale SOLANA_OPERATOR_ACCOUNT_INDEX).
+    expect(svc.getOperatorKeypair().publicKey.toBase58()).toBe(SOL_501_0);
+  });
+
   it('fails fast in production when no operator seed is configured', () => {
     const prev = process.env.NODE_ENV;
     process.env.NODE_ENV = 'production';
