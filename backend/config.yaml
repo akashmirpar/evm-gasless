@@ -37,17 +37,110 @@ redis:
   password: '${REDIS_PASSWORD}'
   defaultTtlSeconds: '300'
 
-# --- Chain config file locations ---
-# Optional absolute overrides. When empty the service walks up from its install
-# dir to find chains/chains.json (and deployed.json beside it). The Docker image
-# sets CHAINS_JSON_PATH to the baked-in copy.
-CHAINS_JSON_PATH: '${CHAINS_JSON_PATH}'
+# --- Delegate address registry ---
+# deployed.json (delegate contract addresses per chain) is a GENERATED file
+# written by contract/script/deploy.sh — kept out of this YAML. Optional absolute
+# override; when empty the service walks up from its install dir to find
+# chains/deployed.json.
 DEPLOYED_JSON_PATH: '${DEPLOYED_JSON_PATH}'
 
-# --- EVM operator wallet + treasury ---
+# --- Chain registry (public config; formerly chains/chains.json) ---
+# rpcUrls: first entry is the keyed provider endpoint (`${ANKR_API_KEY}` is the
+# only secret, interpolated from the secret file); the rest are keyless public
+# fallbacks. acceptedFeeTokens/mainFeeToken drive the EVM fee path; `tokens`
+# lists SPL fee tokens for Solana.
+chains:
+  - chainId: 56
+    name: 'bsc'
+    displayName: 'BNB Smart Chain'
+    nativeSymbol: 'BNB'
+    nativeDecimals: 18
+    rangoChainName: 'BSC'
+    rpcUrls:
+      - 'https://rpc.ankr.com/bsc/${ANKR_API_KEY}'
+      - 'https://bsc-rpc.publicnode.com'
+      - 'https://bsc-dataseed.binance.org'
+      - 'https://1rpc.io/bnb'
+    acceptedFeeTokens:
+      - '0x55d398326f99059ff775485246999027b3197955'
+    mainFeeToken: '0x55d398326f99059ff775485246999027b3197955'
+  - chainId: 8453
+    name: 'base'
+    displayName: 'Base'
+    nativeSymbol: 'ETH'
+    nativeDecimals: 18
+    rangoChainName: 'BASE'
+    rpcUrls:
+      - 'https://rpc.ankr.com/base/${ANKR_API_KEY}'
+      - 'https://base-rpc.publicnode.com'
+      - 'https://mainnet.base.org'
+      - 'https://1rpc.io/base'
+    acceptedFeeTokens:
+      - '0xfde4c96c8593536e31f229ea8f37b2ada2699bb2'
+    mainFeeToken: '0xfde4c96c8593536e31f229ea8f37b2ada2699bb2'
+  - chainId: 42161
+    name: 'arbitrum'
+    displayName: 'Arbitrum One'
+    nativeSymbol: 'ETH'
+    nativeDecimals: 18
+    rangoChainName: 'ARBITRUM'
+    rpcUrls:
+      - 'https://rpc.ankr.com/arbitrum/${ANKR_API_KEY}'
+      - 'https://arbitrum-one-rpc.publicnode.com'
+      - 'https://arb1.arbitrum.io/rpc'
+      - 'https://1rpc.io/arb'
+    acceptedFeeTokens:
+      - '0xfd086bc7cd5c481dcc9c85ebe478a1c0b69fcbb9'
+    mainFeeToken: '0xfd086bc7cd5c481dcc9c85ebe478a1c0b69fcbb9'
+  - chainId: -100
+    name: 'solana'
+    displayName: 'Solana'
+    nativeSymbol: 'SOL'
+    nativeDecimals: 9
+    networkType: 'SOLANA'
+    rangoChainName: 'SOLANA'
+    rpcUrls:
+      - 'https://rpc.ankr.com/solana/${ANKR_API_KEY}'
+      - 'https://api.mainnet-beta.solana.com'
+    tokens:
+      USDC:
+        address: 'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v'
+        decimals: 6
+      USDT:
+        address: 'Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB'
+        decimals: 6
+      xTSLA:
+        address: 'XsDoVfqeBukxuZHWhdvWHBhgEHjGNst4MLodqsJHzoB'
+        decimals: 8
+      xNVDA:
+        address: 'Xsc9qvGR1efVDFGLrVsmkzv3qi45LTBjeUKSPmx9qEh'
+        decimals: 8
+      xAAPL:
+        address: 'XsbEhLAtcf6HdfpFZ5xEMdqW8nfAvcsP5bdudRLJzJp'
+        decimals: 8
+  - chainId: -102
+    name: 'solana-devnet'
+    displayName: 'Solana Devnet'
+    nativeSymbol: 'SOL'
+    nativeDecimals: 9
+    networkType: 'SOLANA'
+    rangoChainName: 'SOLANA_DEVNET'
+    rpcUrls:
+      - 'https://rpc.ankr.com/solana_devnet/${ANKR_API_KEY}'
+      - 'https://api.devnet.solana.com'
+    tokens:
+      USDC:
+        address: '4zMMC9srt5Ri5X14GAgXhaHii3GnPAEERYPJgZJDncDU'
+        decimals: 6
+
+# --- Operator wallet (EVM + Solana fee-payer) ---
+# One BIP-39 mnemonic derives BOTH operators: EVM at m/44'/60'/0'/0/{index},
+# Solana at m/44'/501'/{index}'/0'. The mnemonic itself is a secret (only the
+# ${VAR} reference lives here). Raw OPERATOR_PRIVATE_KEY / SOLANA_OPERATOR_* are
+# still read as fallbacks from the secret file if the mnemonic is unset.
 operator:
-  # Pays gas as the EIP-7702 type-4 tx sender. Required for EVM relaying.
-  privateKey: '${OPERATOR_PRIVATE_KEY}'
+  mnemonic: '${OPERATOR_MNEMONIC}'
+  mnemonicIndex: '${OPERATOR_MNEMONIC_INDEX}'
 
 # --- Rango (swap routing for non-accepted fee tokens) ---
 rango:
@@ -88,12 +181,6 @@ scheduler:
   solanaRelayer:
     time: ''
 
-# --- Per-chain RPC endpoint overrides (optional) ---
-# Each chain in chains/chains.json ships with `defaultRpcs`; to override them at
-# runtime, set the chain's `envRpcVar` (a comma/whitespace-separated URL list) in
-# the SECRET FILE — e.g. ARBITRUM_RPC_URLS, BASE_RPC_URLS, BSC_RPC_URLS,
-# SOLANA_RPC_URLS, SOLANA_DEVNET_RPC_URLS. Left unset, the built-in defaults apply.
-
 # --- Solana ---
 solana:
   rpc:
@@ -108,9 +195,9 @@ solana:
   minFeeLamports: '666666'
   # Broadcast mode: `single` (classic) or `bundled` (Jito atomic bundle).
   # bundledModeEnabled is intentionally NOT set here: resolveMode reads
-  # SOLANA_BUNDLED_MODE_ENABLED ?? SOLANA_G2_ENABLED (legacy alias) ?? 'true'.
-  # A literal default here would mask the SOLANA_G2_ENABLED disable path.
-  # Set SOLANA_BUNDLED_MODE_ENABLED in the secret file / env to disable.
+  # SOLANA_BUNDLED_MODE_ENABLED ?? 'true'. A literal default here would mask the
+  # disable path; set SOLANA_BUNDLED_MODE_ENABLED=false in the secret file / env
+  # to disable bundled mode.
   modeDefault: 'single'
   jito:
     bundleUrl: 'https://mainnet.block-engine.jito.wtf/api/v1/bundles'
@@ -120,16 +207,13 @@ solana:
     skipPreflight: 'true'
     maxRetries: '5'
   operator:
-    # Solana operator key. Set privateKey OR mnemonic (+ optional accountIndex).
-    privateKey: '${SOLANA_OPERATOR_PRIVATE_KEY}'
-    mnemonic: '${SOLANA_OPERATOR_MNEMONIC}'
-    accountIndex: '${SOLANA_OPERATOR_ACCOUNT_INDEX}'
+    # Solana fee-payer key comes from the unified `operator.mnemonic` above.
     # Comma-separated operator-owned Address Lookup Table addresses. Empty = none.
     altAddresses: ''
 
 # --- Dev/test only wallet fallback (never set in production) ---
-# When SOLANA_OPERATOR_* is unset, the operator key falls back to these so a
-# single mnemonic can play both user and fee-payer in e2e tests.
+# When no operator seed is set, the fee-payer falls back to TEST_MNEMONIC so a
+# single seed can play both user and fee-payer in e2e tests.
 test:
-  solanaSenderPrivateKey: '${TEST_SOLANA_SENDER_PRIVATE_KEY}'
+  mnemonic: '${TEST_MNEMONIC}'
   solanaAccountIndex: '${TEST_SOLANA_ACCOUNT_INDEX}'
