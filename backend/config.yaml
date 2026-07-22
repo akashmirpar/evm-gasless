@@ -167,9 +167,11 @@ gasless:
 relayer:
   # Cron for the EVM relayer job (6-field, seconds granularity).
   cron: '*/5 * * * * *'
-  # Cron for the Solana relayer job; falls back to `relayer.cron` when unset.
-  # Left unset here so RELAYER_SOLANA_CRON -> RELAYER_CRON -> code default chain
-  # works; setting a literal here would mask the RELAYER_CRON fallback.
+  # Cron for the Solana relayer job. Declared empty so a deploy-time
+  # RELAYER_SOLANA_CRON (process.env / secret file) is honored via the config
+  # fold; when empty the job falls through to relayer.cron (the consumer uses
+  # trim-truthy, so '' is not treated as a literal empty cron).
+  solanaCron: ''
   maxRetries: '6'
   retryBaseMs: '5000'
 
