@@ -4,7 +4,7 @@
 **Scope**: `rango-intents` (this service), `depositron`, `clydner`, and every new Node.js backend added to the org.
 
 > Adopted into this repo as the canonical reference. This repo's mounted secret path is
-> `/run/secrets/rango_intents_env` and its explicit override var is `RANGO_INTENTS_ENV_FILE`.
+> `/run/secrets/gasless_env` and its explicit override var is `GASLESS_ENV_FILE`.
 > The loader, `config.yaml`, ignore rules, and the pino error-serializer fix below are the
 > concrete adoption steps — track their state as a card, don't assume they are all in place yet.
 
@@ -32,8 +32,8 @@ Two files, distinct roles, distinct locations.
 
 Every service reads secrets through one loader. It searches the following paths and returns the **first** one that exists:
 
-1. Mounted secret file at `/run/secrets/<service>_env` (production / staging path) — the concrete name is per service, e.g. `/run/secrets/rango_intents_env` in rango-intents, `/run/secrets/depositron_env` in depositron.
-2. `$<SERVICE>_ENV_FILE` (explicit override for CI or non-standard setups) — same per-service naming: `RANGO_INTENTS_ENV_FILE`, `DEPOSITRON_ENV_FILE`, etc.
+1. Mounted secret file at `/run/secrets/<service>_env` (production / staging path) — the concrete name is per service, e.g. `/run/secrets/gasless_env` in rango-intents, `/run/secrets/depositron_env` in depositron.
+2. `$<SERVICE>_ENV_FILE` (explicit override for CI or non-standard setups) — same per-service naming: `GASLESS_ENV_FILE`, `DEPOSITRON_ENV_FILE`, etc.
 3. `./.env` at the current working directory (developer laptop fallback).
 
 The rest of the codebase reads through `ConfigService.get('KEY_NAME')`. Keys are `UPPER_SNAKE_CASE`; nested yaml keys flatten by joining with `_` (e.g. `redis.defaultTtlSeconds` → `REDIS_DEFAULT_TTL_SECONDS`). The name is the same regardless of where the value came from.
@@ -50,7 +50,7 @@ When the same key appears in more than one source, later wins:
 
 ### Reference implementation
 
-`rango-intents/src/config/yaml_reader.ts` + `rango-intents/src/config/secret_reader.ts`. Depositron and clydner adopt the same loader (extracted to a shared module or copied per repo).
+`backend/src/config/yaml_reader.ts` + `backend/src/config/secret_reader.ts`. Depositron and clydner adopt the same loader (extracted to a shared module or copied per repo).
 
 ---
 
