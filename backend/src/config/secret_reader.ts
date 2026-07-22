@@ -1,7 +1,7 @@
 /**
  * Reads `KEY=VALUE` pairs from a secret file. Ordered lookup:
- *   1. /run/secrets/pluton_env (Docker secret)
- *   2. $PLUTON_ENV_FILE
+ *   1. /run/secrets/gasless_env (Docker secret)
+ *   2. $GASLESS_ENV_FILE
  *   3. ./.env (relative to cwd)
  *
  * Lines starting with `#` and empty lines are ignored. Values may be quoted
@@ -15,14 +15,14 @@ import { resolve } from 'path';
 
 let cache: Record<string, string> | null = null;
 
-const DEFAULT_PATHS = ['/run/secrets/pluton_env'];
+const DEFAULT_PATHS = ['/run/secrets/gasless_env'];
 
 function pickSecretsPath(): string | null {
   for (const p of DEFAULT_PATHS) {
     if (existsSync(p)) return p;
   }
-  if (process.env.PLUTON_ENV_FILE && existsSync(process.env.PLUTON_ENV_FILE)) {
-    return process.env.PLUTON_ENV_FILE;
+  if (process.env.GASLESS_ENV_FILE && existsSync(process.env.GASLESS_ENV_FILE)) {
+    return process.env.GASLESS_ENV_FILE;
   }
   const dotenv = resolve(process.cwd(), '.env');
   if (existsSync(dotenv)) return dotenv;
