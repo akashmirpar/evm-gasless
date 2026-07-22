@@ -75,7 +75,8 @@ relayer:
   # Cron for the EVM relayer job (6-field, seconds granularity).
   cron: '*/5 * * * * *'
   # Cron for the Solana relayer job; falls back to `relayer.cron` when unset.
-  solanaCron: '*/5 * * * * *'
+  # Left unset here so RELAYER_SOLANA_CRON -> RELAYER_CRON -> code default chain
+  # works; setting a literal here would mask the RELAYER_CRON fallback.
   maxRetries: '6'
   retryBaseMs: '5000'
 
@@ -106,7 +107,10 @@ solana:
   dynamicPriorityPercentile: '75'
   minFeeLamports: '666666'
   # Broadcast mode: `single` (classic) or `bundled` (Jito atomic bundle).
-  bundledModeEnabled: 'true'
+  # bundledModeEnabled is intentionally NOT set here: resolveMode reads
+  # SOLANA_BUNDLED_MODE_ENABLED ?? SOLANA_G2_ENABLED (legacy alias) ?? 'true'.
+  # A literal default here would mask the SOLANA_G2_ENABLED disable path.
+  # Set SOLANA_BUNDLED_MODE_ENABLED in the secret file / env to disable.
   modeDefault: 'single'
   jito:
     bundleUrl: 'https://mainnet.block-engine.jito.wtf/api/v1/bundles'
