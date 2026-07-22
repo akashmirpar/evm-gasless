@@ -1,6 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { Interface, JsonRpcProvider, Signature, Transaction, Wallet, parseUnits } from 'ethers';
+import { HDNodeWallet, Interface, JsonRpcProvider, Signature, Transaction, Wallet, parseUnits } from 'ethers';
 
 import { PlutonException } from '../../../common/errors';
 import { ChainConfigService } from '../../../core/chain_config/chain_config.service';
@@ -34,8 +34,16 @@ export class EvmExecutorService {
   ) {}
 
   private get operatorWallet(): Wallet {
+    // Preferred: one BIP-39 mnemonic drives both chains (EVM m/44'/60'/0'/0/{index},
+    // Solana m/44'/501'/{index}'/0'). Raw OPERATOR_PRIVATE_KEY kept as a fallback.
+    const mnemonic = (this.config.get<string>('OPERATOR_MNEMONIC') ?? '').trim();
+    if (mnemonic) {
+      const index = Number(this.config.get<string>('OPERATOR_MNEMONIC_INDEX') ?? '0');
+      const hd = HDNodeWallet.fromPhrase(mnemonic, undefined, `m/44'/60'/0'/0/${index}`);
+      return new Wallet(hd.privateKey);
+    }
     const pk = (this.config.get<string>('OPERATOR_PRIVATE_KEY') ?? '').trim();
-    if (!pk) throw new Error('OPERATOR_PRIVATE_KEY missing');
+    if (!pk) throw new Error('operator wallet unset: provide OPERATOR_MNEMONIC or OPERATOR_PRIVATE_KEY');
     return new Wallet(pk);
   }
 
