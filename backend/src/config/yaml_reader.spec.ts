@@ -96,6 +96,26 @@ describe('yamlReader / loadConfig', () => {
     delete process.env.GASLESS_ENV_FILE;
   });
 
+  it('preserves secret values containing $ (no dotenv-expand mangling)', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'gasless-cfg-'));
+    const yamlPath = join(dir, 'config.yaml');
+    const envPath = join(dir, 'env');
+    writeFileSync(yamlPath, ['database:', '  postgres:', "    password: '${DATABASE_POSTGRES_PASSWORD}'"].join('\n'));
+    writeFileSync(envPath, 'DATABASE_POSTGRES_PASSWORD=pa$$w0rd\nREDIS_URL=redis://:se$cret@host/0\n');
+    process.env.GASLESS_ENV_FILE = envPath;
+
+    yamlReader(yamlPath);
+    const cfg = loadConfig();
+
+    // raw secret overlay: verbatim
+    expect(cfg.DATABASE_POSTGRES_PASSWORD).toBe('pa$$w0rd');
+    expect(cfg.REDIS_URL).toBe('redis://:se$cret@host/0');
+    // yaml ${VAR} resolved from the $-containing secret: still verbatim
+    expect(cfg.DATABASE_POSTGRES_PASSWORD).toContain('$$');
+
+    delete process.env.GASLESS_ENV_FILE;
+  });
+
   it('secret file wins over process.env at the same key', () => {
     const dir = mkdtempSync(join(tmpdir(), 'gasless-cfg-'));
     const yamlPath = join(dir, 'config.yaml');
