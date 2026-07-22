@@ -28,8 +28,6 @@ backend/.env
 backend/.env.*
 !backend/.env.example
 backend/*.tsbuildinfo
-# Real runtime config (copy from sample.config.yaml); the sample is committed.
-backend/config.yaml
 backend/*.log
 backend/log*.txt
 # ── contract (Foundry) ──────────────────────────────────

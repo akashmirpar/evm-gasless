@@ -70,14 +70,14 @@ export function yamlReader(path: string) {
 }
 
 /**
- * Resolve the config file path from `--config <path>`, then `PLUTON_CONFIG`,
+ * Resolve the config file path from `--config <path>`, then `GASLESS_CONFIG`,
  * falling back to `./config.yaml`. Used by `main.ts` to stage the config
  * before anything reads it.
  */
 export function parseConfigPath(): string {
   const idx = process.argv.findIndex((a) => a === '--config');
   if (idx >= 0 && process.argv[idx + 1]) return process.argv[idx + 1];
-  return process.env.PLUTON_CONFIG ?? './config.yaml';
+  return process.env.GASLESS_CONFIG ?? './config.yaml';
 }
 
 /**

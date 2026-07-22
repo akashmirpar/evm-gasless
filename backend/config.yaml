@@ -1,10 +1,11 @@
+# TODO: Check if all the configs are included in this file
 # Gasless relayer sample config. Copy to ./config.yaml and adjust per env.
 #
 # How config resolves (see src/config/yaml_reader.ts):
 #   - This YAML is flattened to UPPER_SNAKE_CASE keys (e.g. database.postgres.host
 #     -> DATABASE_POSTGRES_HOST) and read via ConfigService.get('<KEY>').
 #   - `${VAR}` placeholders are expanded from the secret file (default:
-#     /run/secrets/pluton_env, or $PLUTON_ENV_FILE, or ./.env) — never inline a
+#     /run/secrets/gasless_env, or $GASLESS_ENV_FILE, or ./.env) — never inline a
 #     secret here.
 #   - Secret-file values OVERRIDE the value set here at the same flattened key,
 #     so any knob below can be overridden at deploy time by adding
@@ -12,7 +13,6 @@
 #
 # Scalars are quoted so ConfigService returns strings uniformly (the code parses
 # them with Number()/BigInt()/.trim() exactly as it did for env vars).
-
 # --- HTTP server ---
 service:
   port: '3100'
