@@ -85,17 +85,46 @@ function expandDeep(input: unknown, secrets: Record<string, string>): unknown {
 }
 
 /**
+ * Expand a URL's `${VAR}` refs, returning null if ANY referenced var is unset
+ * (in neither the secret file nor process.env). Used to drop a keyed RPC
+ * endpoint like `.../bsc/${ANKR_API_KEY}` when the key isn't configured, so the
+ * keyless public fallbacks in the list are used instead of a broken URL.
+ */
+function expandUrlOrNull(url: string, secrets: Record<string, string>): string | null {
+  let unresolved = false;
+  const out = url.replace(VAR_RE, (_m, varName: string) => {
+    const val = secrets[varName] ?? process.env[varName];
+    if (val === undefined || val === '') {
+      unresolved = true;
+      return '';
+    }
+    return val;
+  });
+  return unresolved ? null : out;
+}
+
+/**
  * Structured `chains:` section from config.yaml with `${VAR}` (e.g. the RPC
  * provider key `${ANKR_API_KEY}`) expanded against the secret file / env. The
  * chain registry is nested config that doesn't fit the flat UPPER_SNAKE map, so
- * ChainConfigService reads it through here instead of `loadConfig()`.
+ * ChainConfigService reads it through here instead of `loadConfig()`. RPC URLs
+ * whose provider key is unset are dropped (keyless fallbacks remain).
  */
 export function loadChainsConfig(): unknown[] {
   const yamlMap = parseYamlFile();
   const chains = yamlMap['chains'];
   if (!Array.isArray(chains)) return [];
   const secrets = readSecretConfig();
-  return expandDeep(chains, secrets) as unknown[];
+  return chains.map((chain) => {
+    const expanded = expandDeep(chain, secrets) as Record<string, unknown>;
+    const rawRpc = (chain as Record<string, unknown>)?.rpcUrls;
+    if (Array.isArray(rawRpc)) {
+      expanded.rpcUrls = rawRpc
+        .map((u) => (typeof u === 'string' ? expandUrlOrNull(u, secrets) : null))
+        .filter((u): u is string => u !== null);
+    }
+    return expanded;
+  });
 }
 
 /** Stage the path for the config file. Must be called before app.module is imported. */

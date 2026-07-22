@@ -190,6 +190,33 @@ describe('yamlReader / loadConfig', () => {
     delete process.env.GASLESS_ENV_FILE;
   });
 
+  it('loadChainsConfig() drops a keyed RPC URL when ${ANKR_API_KEY} is unset, keeping fallbacks', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'gasless-cfg-'));
+    const yamlPath = join(dir, 'config.yaml');
+    const emptySecrets = join(dir, 'empty.env');
+    writeFileSync(emptySecrets, '');
+    writeFileSync(
+      yamlPath,
+      [
+        'chains:',
+        '  - chainId: 56',
+        "    name: 'bsc'",
+        '    rpcUrls:',
+        "      - 'https://rpc.ankr.com/bsc/${ANKR_API_KEY}'",
+        "      - 'https://bsc-rpc.publicnode.com'",
+      ].join('\n')
+    );
+    process.env.GASLESS_ENV_FILE = emptySecrets;
+    delete process.env.ANKR_API_KEY;
+
+    yamlReader(yamlPath);
+    const chains = loadChainsConfig() as Array<{ rpcUrls: string[] }>;
+
+    expect(chains[0].rpcUrls).toEqual(['https://bsc-rpc.publicnode.com']);
+
+    delete process.env.GASLESS_ENV_FILE;
+  });
+
   it('loadChainsConfig() returns [] when no chains: section is present', () => {
     const dir = mkdtempSync(join(tmpdir(), 'gasless-cfg-'));
     const yamlPath = join(dir, 'config.yaml');
