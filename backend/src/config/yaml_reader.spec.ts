@@ -133,4 +133,31 @@ describe('yamlReader / loadConfig', () => {
     delete process.env.DATABASE_POSTGRES_HOST;
     delete process.env.GASLESS_ENV_FILE;
   });
+
+  // Precedence asserted THROUGH ConfigService (not just loadConfig()), because
+  // @nestjs/config resolves the load-factory map BEFORE process.env — so
+  // ConfigService.get() and the raw loadConfig() consumers agree: yaml <
+  // process.env < secret file. Guards against the (incorrect) assumption that
+  // ConfigService reads process.env first and would split-brain vs data-source.
+  it('ConfigService.get() honors the same precedence as loadConfig() (secret wins over env+yaml)', async () => {
+    const { Test } = await import('@nestjs/testing');
+    const { ConfigModule, ConfigService } = await import('@nestjs/config');
+    const dir = mkdtempSync(join(tmpdir(), 'gasless-cfg-'));
+    const yamlPath = join(dir, 'config.yaml');
+    const envPath = join(dir, 'env');
+    writeFileSync(yamlPath, ['database:', '  postgres:', "    host: 'yaml-host'"].join('\n'));
+    writeFileSync(envPath, 'DATABASE_POSTGRES_HOST=secret-host\n');
+    process.env.GASLESS_ENV_FILE = envPath;
+    process.env.DATABASE_POSTGRES_HOST = 'env-host';
+
+    yamlReader(yamlPath);
+    const moduleRef = await Test.createTestingModule({
+      imports: [ConfigModule.forRoot({ load: [loadConfig], ignoreEnvFile: true })],
+    }).compile();
+
+    expect(moduleRef.get(ConfigService).get('DATABASE_POSTGRES_HOST')).toBe('secret-host');
+
+    delete process.env.DATABASE_POSTGRES_HOST;
+    delete process.env.GASLESS_ENV_FILE;
+  });
 });
