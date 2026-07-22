@@ -26,9 +26,11 @@ import { RelayerSolanaModule } from './modules/relayer-solana/relayer-solana.mod
 
 @Module({
   imports: [
-    // Single source of truth: the merged yaml + secret map (src/config) is
-    // loaded here and consumed everywhere via ConfigService. `ignoreEnvFile`
-    // keeps process.env out of the picture — config comes only from loadConfig.
+    // Single source of truth: the merged map (src/config) is loaded here and
+    // consumed everywhere via ConfigService. `ignoreEnvFile` disables
+    // @nestjs/config's own .env parsing — loadConfig owns the full precedence
+    // (yaml defaults < process.env < secret file), so process.env overrides
+    // still apply for declared keys.
     ConfigModule.forRoot({
       load: [loadConfig],
       isGlobal: true,

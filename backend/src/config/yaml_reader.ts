@@ -83,8 +83,16 @@ export function parseConfigPath(): string {
 /**
  * Returns the merged & flattened config map. Computed once and cached.
  * Order of precedence (later overrides earlier):
- *   1. YAML file (after `${...}` expansion against secrets)
- *   2. Secret file values
+ *   1. YAML file (after `${...}` expansion against secrets) — non-secret defaults
+ *   2. process.env — deploy-time overrides for any DECLARED key (docker -e / k8s env:)
+ *   3. Secret file values — secrets and final overrides
+ *
+ * `@nestjs/config` resolves this load-factory map BEFORE process.env, so a knob
+ * shipped as a literal in the YAML would otherwise make its env var unreachable
+ * (the DB path in data-source.ts reads this map with NO ConfigService fallback
+ * at all). Folding process.env in here — scoped to keys the YAML already
+ * declares, so unrelated host env vars can't leak in — makes the documented
+ * precedence real for both the ConfigService and the raw-map consumers.
  */
 export function loadConfig(): Record<string, string | number | boolean> {
   if (merged) return merged;
@@ -107,7 +115,14 @@ export function loadConfig(): Record<string, string | number | boolean> {
     expanded[k] = expandVars(v, secrets) as string | number | boolean;
   }
 
-  // Secrets override YAML keys at the same flattened name.
+  // process.env overrides a declared YAML default (deploy-time override).
+  // Scoped to keys the YAML declares so we don't absorb the whole environment.
+  for (const k of Object.keys(expanded)) {
+    const fromEnv = process.env[k];
+    if (fromEnv !== undefined) expanded[k] = fromEnv;
+  }
+
+  // Secret file wins over YAML and process.env at the same flattened name.
   for (const [k, v] of Object.entries(secrets)) {
     expanded[k] = v;
   }

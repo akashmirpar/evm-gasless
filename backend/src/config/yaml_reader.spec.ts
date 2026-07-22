@@ -77,4 +77,40 @@ describe('yamlReader / loadConfig', () => {
 
     delete process.env.GASLESS_ENV_FILE;
   });
+
+  it('lets process.env override a declared YAML literal (deploy-time override)', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'gasless-cfg-'));
+    const yamlPath = join(dir, 'config.yaml');
+    const emptySecrets = join(dir, 'empty.env');
+    writeFileSync(emptySecrets, '');
+    writeFileSync(yamlPath, ['database:', '  postgres:', "    host: '127.0.0.1'"].join('\n'));
+    process.env.GASLESS_ENV_FILE = emptySecrets;
+    process.env.DATABASE_POSTGRES_HOST = 'db.prod.internal';
+
+    yamlReader(yamlPath);
+    const cfg = loadConfig();
+
+    expect(cfg.DATABASE_POSTGRES_HOST).toBe('db.prod.internal');
+
+    delete process.env.DATABASE_POSTGRES_HOST;
+    delete process.env.GASLESS_ENV_FILE;
+  });
+
+  it('secret file wins over process.env at the same key', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'gasless-cfg-'));
+    const yamlPath = join(dir, 'config.yaml');
+    const envPath = join(dir, 'env');
+    writeFileSync(yamlPath, ['database:', '  postgres:', "    host: '127.0.0.1'"].join('\n'));
+    writeFileSync(envPath, 'DATABASE_POSTGRES_HOST=db.secret.internal\n');
+    process.env.GASLESS_ENV_FILE = envPath;
+    process.env.DATABASE_POSTGRES_HOST = 'db.env.internal';
+
+    yamlReader(yamlPath);
+    const cfg = loadConfig();
+
+    expect(cfg.DATABASE_POSTGRES_HOST).toBe('db.secret.internal');
+
+    delete process.env.DATABASE_POSTGRES_HOST;
+    delete process.env.GASLESS_ENV_FILE;
+  });
 });
