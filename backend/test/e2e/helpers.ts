@@ -10,12 +10,18 @@ import {
   Wallet,
   parseUnits,
 } from 'ethers';
-import { existsSync, readFileSync } from 'fs';
-import { join } from 'path';
+import { randomUUID } from 'crypto';
+import { existsSync, mkdtempSync, readFileSync, writeFileSync } from 'fs';
+import { tmpdir } from 'os';
+import { join, resolve } from 'path';
+import { DataSource } from 'typeorm';
 import { GenericContainer, StartedTestContainer } from 'testcontainers';
 import supertest from 'supertest';
 
 import { AppModule } from 'src/app.module';
+import { __resetConfigCache } from 'src/config/yaml_reader';
+import { __resetSecretCache } from 'src/config/secret_reader';
+import { ApiKeyEntity } from 'src/modules/auth/domain/entity/api_key.entity';
 
 export interface E2EEnv {
   chainId: number;
@@ -56,6 +62,17 @@ export function deriveEvmTestWallet(indexEnv: string, defaultIndex: number, pkEn
   const pk = (process.env[pkEnv] ?? '').trim();
   if (!pk) throw new Error(`missing test wallet: set TEST_MNEMONIC or ${pkEnv}`);
   return new Wallet(pk);
+}
+
+export function resolveBroadcastOperatorAddress(fallback: Wallet): string {
+  const mnemonic = (process.env.OPERATOR_MNEMONIC ?? '').trim();
+  if (mnemonic) {
+    const index = Number((process.env.OPERATOR_MNEMONIC_INDEX ?? '0').trim() || '0');
+    return HDNodeWallet.fromPhrase(mnemonic, undefined, `m/44'/60'/0'/0/${index}`).address;
+  }
+  const pk = (process.env.OPERATOR_PRIVATE_KEY ?? '').trim();
+  if (pk) return new Wallet(pk).address;
+  return fallback.address;
 }
 
 export function readE2EEnv(): E2EEnv {
@@ -110,12 +127,9 @@ export async function pingBackend(baseUrl: string): Promise<boolean> {
   }
 }
 
-export function httpFor(baseUrl: string): supertest.Agent {
-  const agent = supertest(baseUrl);
-  const apiKey = (process.env.E2E_API_KEY ?? '').trim();
-  if (!apiKey) return agent;
-  // The /gasless surface is guarded now — attach x-api-key to every request
-  // without touching each spec's call sites.
+// The /gasless surface is guarded now — attach x-api-key to every request
+// without touching each spec's call sites.
+export function attachApiKey(agent: supertest.Agent, apiKey: string): supertest.Agent {
   const verbs = new Set(['get', 'post', 'put', 'patch', 'delete']);
   const attach = (method: string) => (path: string) =>
     (agent as unknown as Record<string, (p: string) => supertest.Test>)[method](path).set('x-api-key', apiKey);
@@ -127,6 +141,44 @@ export function httpFor(baseUrl: string): supertest.Agent {
   }) as supertest.Agent;
 }
 
+// Suites that boot their own database start with an empty api_key table, so they
+// mint their own key rather than depending on a row another suite left behind.
+export async function seedApiKey(app: INestApplication): Promise<string> {
+  const key = randomUUID();
+  await app.get(DataSource).getRepository(ApiKeyEntity).save({
+    clientName: 'e2e',
+    key,
+    isActive: true,
+    rateLimitRps: 1000,
+  });
+  return key;
+}
+
+export function httpFor(baseUrl: string): supertest.Agent {
+  const agent = supertest(baseUrl);
+  const apiKey = (process.env.E2E_API_KEY ?? '').trim();
+  if (!apiKey) return agent;
+  return attachApiKey(agent, apiKey);
+}
+
+function writeE2ESecretFile(overrides: Record<string, string>): string {
+  const source = (process.env.GASLESS_ENV_FILE ?? '').trim() || resolve(process.cwd(), '.env');
+  const inherited = existsSync(source)
+    ? readFileSync(source, 'utf8')
+      .split('\n')
+      .filter((line) => {
+        const trimmed = line.trim();
+        if (!trimmed || trimmed.startsWith('#')) return false;
+        const eq = trimmed.indexOf('=');
+        return eq > 0 && !(trimmed.slice(0, eq).trim() in overrides);
+      })
+    : [];
+  const merged = [...inherited, ...Object.entries(overrides).map(([k, v]) => `${k}=${v}`)].join('\n');
+  const file = join(mkdtempSync(join(tmpdir(), 'gasless-e2e-')), 'secrets.env');
+  writeFileSync(file, `${merged}\n`);
+  return file;
+}
+
 export async function bootBackend(extraEnv: Record<string, string>): Promise<{ app: INestApplication; http: supertest.Agent; postgres: StartedTestContainer; redis: StartedTestContainer }> {
   const postgres = await new GenericContainer('postgres:16-alpine')
     .withEnvironment({ POSTGRES_USER: 'gasless', POSTGRES_PASSWORD: 'gasless', POSTGRES_DB: 'gasless' })
@@ -135,11 +187,23 @@ export async function bootBackend(extraEnv: Record<string, string>): Promise<{ a
     .start();
   const redis = await new GenericContainer('redis:7-alpine').withExposedPorts(6379).start();
 
-  process.env.DATABASE_POSTGRES_HOST = postgres.getHost();
-  process.env.DATABASE_POSTGRES_PORT = String(postgres.getMappedPort(5432));
-  process.env.REDIS_HOST = redis.getHost();
-  process.env.REDIS_PORT = String(redis.getMappedPort(6379));
-  for (const [k, v] of Object.entries(extraEnv)) process.env[k] = v;
+  const overrides: Record<string, string> = {
+    DATABASE_POSTGRES_HOST: postgres.getHost(),
+    DATABASE_POSTGRES_PORT: String(postgres.getMappedPort(5432)),
+    REDIS_HOST: redis.getHost(),
+    REDIS_PORT: String(redis.getMappedPort(6379)),
+    ...extraEnv,
+  };
+  for (const [k, v] of Object.entries(overrides)) process.env[k] = v;
+  // The secret file outranks process.env (src/config/secret_reader), so setting
+  // process.env alone leaves the app pointed at whatever database the developer's
+  // .env pins — i.e. the shared dev database these containers exist to avoid.
+  // Inject through the secret file instead, inheriting the real secrets.
+  process.env.GASLESS_ENV_FILE = writeE2ESecretFile(overrides);
+  // Both readers cache their parsed file in module state, and importing the app
+  // already populated that cache from the developer's .env.
+  __resetSecretCache();
+  __resetConfigCache();
 
   const moduleRef = await Test.createTestingModule({ imports: [AppModule] })
     .overrideProvider(APP_PIPE)
@@ -168,9 +232,10 @@ export async function ensureUserHasNativeAndToken(env: E2EEnv, token: string, mi
         `Fund the wallet or lower the minimum to continue.`,
       );
     }
-    const operatorBalance = await provider.getBalance(env.operatorWallet.address);
+    const operatorAddress = resolveBroadcastOperatorAddress(env.operatorWallet);
+    const operatorBalance = await provider.getBalance(operatorAddress);
     if (operatorBalance < parseUnits('0.0005', 'ether')) {
-      throw new Error(`operator ${env.operatorWallet.address} needs at least 0.0005 native to broadcast; has ${operatorBalance}`);
+      throw new Error(`operator ${operatorAddress} needs at least 0.0005 native to broadcast; has ${operatorBalance}`);
     }
   } finally {
     provider.destroy();
