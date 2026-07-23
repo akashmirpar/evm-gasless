@@ -47,6 +47,9 @@ function serializeCause(cause: unknown): unknown {
 @Catch()
 export class AllExceptionsFilter implements ExceptionFilter {
   private readonly logger = new Logger('AllExceptionsFilter');
+  // Fingerprinting surface: echoed in responses only when the operator opts in; always logged server-side.
+  private readonly exposeCauses =
+    ['true', '1'].includes((process.env.GASLESS_EXPOSE_ERROR_CAUSES ?? 'false').trim().toLowerCase());
 
   catch(exception: unknown, host: ArgumentsHost) {
     const httpCtx = host.switchToHttp();
@@ -56,6 +59,10 @@ export class AllExceptionsFilter implements ExceptionFilter {
 
     const { status, body } = this.format(exception);
 
+    const loggedCauses =
+      (exception instanceof PlutonHttpException || exception instanceof PlutonSystemException) && exception.causes.length > 0
+        ? exception.causes.map(serializeCause).filter((c) => c !== null)
+        : undefined;
     const logPayload = JSON.stringify({
       traceId,
       method: request.method,
@@ -63,6 +70,7 @@ export class AllExceptionsFilter implements ExceptionFilter {
       status,
       code: body.code,
       message: this.summarize(exception),
+      causes: loggedCauses,
     });
     if (status >= 500) {
       this.logger.error(logPayload);
@@ -82,7 +90,7 @@ export class AllExceptionsFilter implements ExceptionFilter {
     if (exception instanceof PlutonHttpException) {
       const info = exception.errorInfo;
       const body: ErrorBody = { code: info.code, message: info.message };
-      if (exception.causes.length > 0) {
+      if (this.exposeCauses && exception.causes.length > 0) {
         body.causes = exception.causes.map(serializeCause).filter((c) => c !== null) as ErrorBody['causes'];
       }
       return { status: info.httpCode, body };
@@ -91,7 +99,7 @@ export class AllExceptionsFilter implements ExceptionFilter {
     if (exception instanceof PlutonSystemException) {
       const info = exception.errorInfo;
       const body: ErrorBody = { code: info.code, message: info.message };
-      if (exception.causes.length > 0) {
+      if (this.exposeCauses && exception.causes.length > 0) {
         body.causes = exception.causes.map(serializeCause).filter((c) => c !== null) as ErrorBody['causes'];
       }
       return { status: info.httpCode, body };

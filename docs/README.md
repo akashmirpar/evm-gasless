@@ -4,7 +4,7 @@ This directory documents the gasless transaction relayer system so other project
 
 - **`gasless/contract/`** — the `GaslessDelegate` Solidity contract used on EVM chains. Users delegate their EOA to this contract via EIP-7702; the contract verifies user-signed EIP-712 batches and runs them in two zones (must-succeed fee ops, then atomic group of user intent).
 - **`gasless/backend/`** — the NestJS relayer service. Supports both EVM (EIP-7702 type-4 broadcast) and Solana (operator co-signs as fee payer on VersionedTransactions). Estimates fees in the user's chosen fee token (via Rango — which wraps Jupiter on Solana), builds the signable payload, broadcasts after the user signs, and tracks status.
-- **`gasless/chains/`** — shared config: the `chains:` section of `backend/config.yaml` lists every supported chain (BSC, Base, Arbitrum, Solana mainnet/devnet), its RPC endpoints, and the operator-accepted fee tokens per chain; `deployed.json` records the deployed `GaslessDelegate` address per EVM chain.
+- **`gasless/chains/`** — shared config: the `chains:` section of `backend/config.yaml` lists the configured chains (BSC, Base, Arbitrum, Solana mainnet/devnet — any EIP-7702 EVM chain can be added), their RPC endpoints, and the operator-accepted fee tokens per chain; `deployed.json` records the deployed `GaslessDelegate` address per EVM chain.
 
 | Doc | When to read |
 |-----|--------------|

@@ -1,7 +1,7 @@
-import type { ConfigService } from '@nestjs/config';
 import BigNumber from 'bignumber.js';
 
 import { FeeEstimatorService } from './fee_estimator.service';
+import { FeePolicyService } from '../../../core/pricing';
 import { NATIVE_TOKEN_SENTINEL } from '../../../core/chain_config/chain_config.service';
 import { NetworkType } from '../../../common/utils/network_type';
 
@@ -57,7 +57,14 @@ function makeEstimator(opts: {
     getSymbolBestEffort: jest.fn(async () => '?'),
   };
 
-  const svc = new FeeEstimatorService(chainConfig, rpc, rango, tokenMetadata as never, { get: () => undefined } as unknown as ConfigService);
+  // Default env → bps mode, no-loss off: FeePolicyService never sizes via the
+  // price feed and its fiat calls swallow the stub's rejection.
+  const pricingStub = {
+    nativeToFeeToken: jest.fn(async () => { throw new Error('no price in bps test'); }),
+    toUsd: jest.fn(async () => { throw new Error('no price in bps test'); }),
+  } as never;
+  const feePolicy = new FeePolicyService(pricingStub);
+  const svc = new FeeEstimatorService(chainConfig, rpc, rango, tokenMetadata as never, feePolicy);
   return { svc, rango, tokenMetadata, quoteCalls };
 }
 

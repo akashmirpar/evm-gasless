@@ -47,6 +47,8 @@ export class EvmService {
             outputAmount: est.swapRoute.outputAmount.toFixed(),
           }
         : undefined,
+      feeUsd: est.feeUsd,
+      estimatedNativeCostUsd: est.estimatedNativeCostUsd,
     };
   }
 

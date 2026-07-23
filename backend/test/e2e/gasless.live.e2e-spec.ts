@@ -102,7 +102,8 @@ describeIfLive('gasless e2e against a running backend instance', () => {
   }, 300_000);
 
   it('unsupported fee token path against running instance', async () => {
-    const feeAmountMinimum = parseUnits('5', 18);
+    // Just enough to cover the swap-fee (a few cents in BTCB), not an arbitrary 5-token bar.
+    const feeAmountMinimum = parseUnits('0.0001', 18);
     await ensureUserHasNativeAndToken(env, env.unsupportedFeeToken, feeAmountMinimum);
     await waitForStableNonce(env);
 
