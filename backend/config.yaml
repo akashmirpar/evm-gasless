@@ -205,7 +205,13 @@ solana:
   jito:
     bundleUrl: 'https://mainnet.block-engine.jito.wtf/api/v1/bundles'
     uuid: '${SOLANA_JITO_UUID}'
-    tipLamports: '5000'
+    # Raised 5000 -> 200000 on 2026-07-23 after live e2e: a swap-fee bundle
+    # (Rango swap + prefund tx) was NOT included by Jito at 5000 across repeated
+    # attempts — the bundle expired and the request went FAILED_PERMANENT. The
+    # same bundle landed first try at 200000. 5000 is only competitive for the
+    # light single-transfer bundle; heavier swap bundles need a real tip.
+    # ~200k lamports ≈ $0.03 at $150 SOL, and the user pays it via the estimate.
+    tipLamports: '200000'
   broadcast:
     skipPreflight: 'true'
     maxRetries: '5'
