@@ -43,3 +43,8 @@ contract/lib/
 
 # Claude
 .claude/settings.local.json
+
+# code-review generated outputs (local tooling state)
+code-review/issue_*
+code-review/**/diff_*.diff
+code-review/**/*.diff

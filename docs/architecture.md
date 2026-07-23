@@ -36,7 +36,7 @@ A user wants to execute arbitrary EVM operations from their own EOA but doesn't 
 |-------|----------|--------------|
 | Solidity contract (`GaslessDelegate`) | [`gasless/contract/`](../contract/) | EIP-7702 delegate target. Verifies EIP-712 batch signatures bound to the EOA itself. Splits each batch into must-succeed zone + atomic group. |
 | Backend service | [`gasless/backend/`](../backend/) | HTTP API, fee estimation, Rango swap construction, Redis-stashed prepared batches, Postgres-tracked submitted transactions, relayer poller. |
-| Shared chain config | [`gasless/chains/`](../chains/) | `chains.json` (per-chain RPC defaults, tokens, names) and `deployed.json` (per-chain delegate contract address — written by the deploy script). |
+| Shared chain config | [`gasless/chains/`](../chains/) | the `chains:` section of `backend/config.yaml` (per-chain RPC endpoints, tokens, names) and `chains/deployed.json` (per-chain delegate contract address — written by the deploy script). |
 
 ## The two zones (and why)
 
@@ -56,7 +56,7 @@ The user signs whichever shape applies. The signature commits to every byte of e
 
 ## Submission is permissionless
 
-`executeBatch` has **no admin gate**. Anyone holding the user's signed batch can submit it and pay gas. They can't profit by redirecting the fee, because the user's signature locks the treasury recipient. The operator wallet configured in the backend (`OPERATOR_PRIVATE_KEY`) is just whoever pays gas — the contract has no notion of them.
+`executeBatch` has **no admin gate**. Anyone holding the user's signed batch can submit it and pay gas. They can't profit by redirecting the fee, because the user's signature locks the treasury recipient. The operator wallet configured in the backend (`OPERATOR_MNEMONIC`) is just whoever pays gas — the contract has no notion of them.
 
 This matters for integration: if a third party wants to provide a redundant submitter (failover relayer, MEV-resistant inclusion service, etc.), they can do it without any contract change. They just need the signed batch.
 

@@ -24,9 +24,9 @@ Multiple endpoints share these fields:
 
 | Field | Type | Notes |
 |-------|------|-------|
-| `chainId` | `number` | EVM chain id. Must be a chain configured in `chains.json`. |
+| `chainId` | `number` | EVM chain id. Must be a chain configured in `config.yaml` (the `chains:` section). |
 | `userAddress` | `string` | The end-user's EOA. The delegated EOA that runs `GaslessDelegate`. Normalized to lowercase by the backend; clients can pass either case or with/without `0x`. |
-| `feeTokenAddress` | `string` | ERC-20 the user wants to pay the fee in. Either an address in `chains.json`'s token list, or `0xEeeeeEEee…eEEEE` for native (`NATIVE_TOKEN_SENTINEL`). |
+| `feeTokenAddress` | `string` | ERC-20 the user wants to pay the fee in. Either an address in the chain's `tokens` list in `config.yaml`, or `0xEeeeeEEee…eEEEE` for native (`NATIVE_TOKEN_SENTINEL`). |
 | `operations` | `UserOp[]` | The user's intent ops (atomic group). Each op: `{ chainId, to, value, data }`. `value` is a non-negative integer string (wei). `data` is `0x`-prefixed hex (can be `"0x"` for empty). |
 
 ## `POST /gasless/transactions/estimate`

@@ -54,7 +54,7 @@ The gasless backend exposes four HTTP endpoints per family. The shape is paralle
 
 Solana cluster IDs are negative integers because Solana doesn't natively have a numeric chain ID — the negative space is a Pluton-side convention so the same `chainId` parameter can route both families.
 
-Add or change a chain by editing `gasless/chains/chains.json` and (for EVM) `gasless/chains/deployed.json` to record the deployed `GaslessDelegate` address. The backend reads both at boot.
+Add or change a chain by editing the `chains:` section of `backend/config.yaml` (chain id, name, `rpcUrls`, accepted fee tokens, Solana `tokens`). The deployed `GaslessDelegate` address per EVM chain lives in the generated `gasless/chains/deployed.json` (written by `contract/script/deploy.sh`). The backend reads both at boot.
 
 Backend internals (you don't need to know these to integrate, but useful for debugging):
 
@@ -101,6 +101,7 @@ Response:
 
 Same body as `estimate` plus optional fields on Solana:
 
+- `mode?: 'single' | 'bundled'` — broadcast mode (both `estimate` and this endpoint accept it). `single` = classic single tx; `bundled` = Jito atomic bundle for intents that overshoot 1232B. Omit to let the backend choose (defaults to `single`, auto-promoted to `bundled` on wire-size overshoot). **The legacy aliases `g1`/`g2` were removed — a request with `mode: 'g1'` or `'g2'` now returns `400`.**
 - `addressLookupTables?: string[]` — ALT pubkeys from your routing provider's V0 response
 - `userSolPrefundLamports?: string` — absolute override for the SOL prefund (see [Overriding the SOL prefund](#overriding-the-sol-prefund))
 - `userSolPrefundExtraLamports?: string` — additive top-up on the auto-scanned prefund
@@ -598,7 +599,7 @@ The EVM fee-token whitelist has been dropped. The backend accepts **any** `feeTo
 
 **1. Direct-accept (fee token is on the chain's `acceptedFeeTokens` list)**
 
-`chains.json` per-chain fields:
+`config.yaml` per-chain fields (under `chains:`):
 - `acceptedFeeTokens: [addr...]` — treated as "already valuable to the operator" and collected via a plain `ERC20.transfer(user → treasury)` op prepended to the batch. No Rango swap.
 - `mainFeeToken: addr` — the single token everything unaccepted gets swapped INTO. **Must** be one of `acceptedFeeTokens` (self-consistency: the swap target is itself acceptable).
 
@@ -635,7 +636,7 @@ Heuristic assumes `quote(A→B)` and `quote(B→A)` are near-reciprocal. Holds f
 - **USDT-style transferFrom blacklists**: if the operator or treasury is blacklisted on a token, swap reverts. Bounded per-token failure; other tokens unaffected.
 - **Rebasing / silent-true `transferFrom` tokens**: same class as blacklists — router swap fails, batch reverts. No fund loss.
 
-**Removed fields from `chains.json` for EVM chains** (upgraders take note):
+**Removed fields from the `chains:` registry for EVM chains** (upgraders take note):
 
 The old per-EVM-chain `tokens: {SYMBOL: {address, decimals}}` map is gone. Decimals now come from RPC on-first-sight and are cached. Solana chains still use the old shape (whitelist-drop for Solana is a follow-up card).
 
@@ -800,10 +801,11 @@ This section is for whoever runs the gasless backend, not integrators. Integrato
 | --- | --- |
 | `DATABASE_POSTGRES_*` | Postgres connection (host/port/user/password/database). Required at boot. |
 | `REDIS_*` | Redis for create→submit cache. `REDIS_DEFAULT_TTL_SECONDS=300` is overall cache cap; per-stash TTL governed by `GASLESS_CREATE_TTL_SECONDS=90`. |
-| `OPERATOR_PRIVATE_KEY` | EVM operator EOA (pays gas, becomes type-4 `from`). |
+| `OPERATOR_MNEMONIC` (+ optional `OPERATOR_MNEMONIC_INDEX`, default `0`) | **Primary** operator seed — one BIP-39 mnemonic derives BOTH the EVM operator (`m/44'/60'/0'/0/{index}`, becomes the type-4 `from`) and the Solana fee-payer (`m/44'/501'/{index}'/0'`). Fails fast at boot if unset in production. |
+| `OPERATOR_PRIVATE_KEY` / `SOLANA_OPERATOR_PRIVATE_KEY` / `SOLANA_OPERATOR_MNEMONIC` (+`SOLANA_OPERATOR_ACCOUNT_INDEX`) | Legacy per-chain fallbacks, used only when `OPERATOR_MNEMONIC` is unset. |
 | `GASLESS_TREASURY_ADDRESS` | EVM address that receives user fees. If unset, falls back to operator pubkey with a startup warning — fine in dev, **NOT** for production. |
-| `SOLANA_OPERATOR_PRIVATE_KEY` OR `SOLANA_OPERATOR_MNEMONIC` + `SOLANA_OPERATOR_ACCOUNT_INDEX` | Solana operator keypair. Phantom path `m/44'/501'/{index}'/0'`. |
 | `GASLESS_SOLANA_TREASURY_ADDRESS` | Solana base58 pubkey receiving fees. Defaults to operator pubkey (same warning applies). |
+| `ANKR_API_KEY` | RPC provider key, interpolated into each chain's keyed endpoint in `config.yaml` (`${ANKR_API_KEY}`). Unset → the keyed endpoint is dropped and the keyless public fallbacks are used. RPC endpoints themselves live in `config.yaml` (`chains[].rpcUrls`); there are no `*_RPC_URLS` env overrides. |
 | `RANGO_API_URL`, `RANGO_API_KEY` | Rango Basic API credentials. |
 
 ### Tuning knobs

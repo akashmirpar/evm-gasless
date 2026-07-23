@@ -1,6 +1,6 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { Interface, JsonRpcProvider, Signature, Transaction, Wallet, parseUnits } from 'ethers';
+import { HDNodeWallet, Interface, JsonRpcProvider, Signature, Transaction, Wallet, parseUnits } from 'ethers';
 
 import { PlutonException } from '../../../common/errors';
 import { ChainConfigService } from '../../../core/chain_config/chain_config.service';
@@ -23,9 +23,10 @@ export interface PreparedTx {
 }
 
 @Injectable()
-export class EvmExecutorService {
+export class EvmExecutorService implements OnModuleInit {
   private readonly logger = new Logger(EvmExecutorService.name);
   private readonly operatorMutex = new Map<string, Promise<unknown>>();
+  private cachedOperator: Wallet | null = null;
 
   constructor(
     private readonly chainConfig: ChainConfigService,
@@ -33,10 +34,39 @@ export class EvmExecutorService {
     private readonly config: ConfigService,
   ) {}
 
+  /** Fail-fast: resolve the operator at boot so a missing/malformed seed is
+   * caught before the first relay, not silently during one. */
+  onModuleInit(): void {
+    this.logger.log(`evm operator address: ${this.operatorWallet.address}`);
+  }
+
   private get operatorWallet(): Wallet {
+    // Cache: mnemonic derivation is PBKDF2(2048)+HD, not free — resolve once
+    // rather than per prepare() call.
+    if (this.cachedOperator) return this.cachedOperator;
+    // Preferred: one BIP-39 mnemonic drives both chains (EVM m/44'/60'/0'/0/{index},
+    // Solana m/44'/501'/{index}'/0'). Raw OPERATOR_PRIVATE_KEY kept as a fallback.
+    // Declared-but-unset YAML keys resolve to '' (not undefined), so test
+    // truthiness after trim rather than nullish-coalescing.
+    const mnemonic = (this.config.get<string>('OPERATOR_MNEMONIC') ?? '').trim();
+    if (mnemonic) {
+      const index = EvmExecutorService.parseIndex(this.config.get<string>('OPERATOR_MNEMONIC_INDEX'));
+      const hd = HDNodeWallet.fromPhrase(mnemonic, undefined, `m/44'/60'/0'/0/${index}`);
+      this.cachedOperator = new Wallet(hd.privateKey);
+      return this.cachedOperator;
+    }
     const pk = (this.config.get<string>('OPERATOR_PRIVATE_KEY') ?? '').trim();
-    if (!pk) throw new Error('OPERATOR_PRIVATE_KEY missing');
-    return new Wallet(pk);
+    if (!pk) throw new Error('operator wallet unset: provide OPERATOR_MNEMONIC or OPERATOR_PRIVATE_KEY');
+    this.cachedOperator = new Wallet(pk);
+    return this.cachedOperator;
+  }
+
+  private static parseIndex(raw: string | undefined): number {
+    const n = Number((raw ?? '0').trim() || '0');
+    if (!Number.isInteger(n) || n < 0) {
+      throw new Error(`OPERATOR_MNEMONIC_INDEX must be a non-negative integer, got ${raw}`);
+    }
+    return n;
   }
 
   private async withOperatorLock<T>(operatorAddress: string, fn: () => Promise<T>): Promise<T> {

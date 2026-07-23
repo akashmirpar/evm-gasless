@@ -3,6 +3,7 @@ import { JsonRpcProvider, Network } from 'ethers';
 
 import { PlutonException, isPlutonException } from '../../common/errors';
 import { ErrorCodes } from '../../common/errors/codes';
+import { redactRpcUrl, scrubRpcSecrets } from '../../common/utils/redact_rpc';
 import { ChainConfigService } from '../chain_config/chain_config.service';
 
 @Injectable()
@@ -32,7 +33,7 @@ export class RpcService {
         return out;
       } catch (err) {
         if (isPlutonException(err)) throw err;
-        attempts.push({ url: redactUrl(url), error: (err as Error)?.message ?? String(err) });
+        attempts.push({ url: redactRpcUrl(url), error: scrubRpcSecrets((err as Error)?.message ?? String(err), [url]) });
         provider.destroy();
       }
     }
@@ -45,14 +46,5 @@ export class RpcService {
       },
       attempts,
     );
-  }
-}
-
-function redactUrl(url: string): string {
-  try {
-    const u = new URL(url);
-    return `${u.protocol}//${u.host}`;
-  } catch {
-    return '<rpc>';
   }
 }

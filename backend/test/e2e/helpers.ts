@@ -3,6 +3,7 @@ import { APP_PIPE } from '@nestjs/core';
 import { Test } from '@nestjs/testing';
 import {
   Contract,
+  HDNodeWallet,
   JsonRpcProvider,
   Signature,
   TransactionReceipt,
@@ -40,6 +41,23 @@ function resolveDelegateAddress(chainId: number): string {
   return addr;
 }
 
+/**
+ * Derive an EVM test wallet. Preferred: one `TEST_MNEMONIC` derives every e2e
+ * wallet along m/44'/60'/0'/0/{index} (per-role index vars). Raw `${pkEnv}` is
+ * kept only as a fallback for setups that predate the mnemonic consolidation.
+ */
+export function deriveEvmTestWallet(indexEnv: string, defaultIndex: number, pkEnv: string): Wallet {
+  const mnemonic = (process.env.TEST_MNEMONIC ?? '').trim();
+  if (mnemonic) {
+    const index = Number((process.env[indexEnv] ?? String(defaultIndex)).trim() || String(defaultIndex));
+    const hd = HDNodeWallet.fromPhrase(mnemonic, undefined, `m/44'/60'/0'/0/${index}`);
+    return new Wallet(hd.privateKey);
+  }
+  const pk = (process.env[pkEnv] ?? '').trim();
+  if (!pk) throw new Error(`missing test wallet: set TEST_MNEMONIC or ${pkEnv}`);
+  return new Wallet(pk);
+}
+
 export function readE2EEnv(): E2EEnv {
   const req = (k: string): string => {
     const v = (process.env[k] ?? '').trim();
@@ -50,16 +68,14 @@ export function readE2EEnv(): E2EEnv {
   const rpcUrl = (process.env[`E2E_RPC_URL_${chainId}`] ?? process.env.E2E_RPC_URL ?? '').trim();
   if (!rpcUrl) throw new Error('missing E2E_RPC_URL');
 
-  const userPk = req('E2E_USER_PRIVATE_KEY');
-  const operatorPk = req('E2E_OPERATOR_PRIVATE_KEY');
   const delegated = resolveDelegateAddress(chainId);
 
   return {
     chainId,
     rpcUrl,
     delegateContractAddress: delegated,
-    userWallet: new Wallet(userPk),
-    operatorWallet: new Wallet(operatorPk),
+    userWallet: deriveEvmTestWallet('TEST_EVM_USER_INDEX', 0, 'E2E_USER_PRIVATE_KEY'),
+    operatorWallet: deriveEvmTestWallet('TEST_EVM_OPERATOR_INDEX', 1, 'E2E_OPERATOR_PRIVATE_KEY'),
     treasuryAddress: req('E2E_TREASURY_ADDRESS'),
     supportedFeeToken: req('E2E_SUPPORTED_FEE_TOKEN'),
     unsupportedFeeToken: req('E2E_UNSUPPORTED_FEE_TOKEN'),

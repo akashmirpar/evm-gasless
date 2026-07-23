@@ -63,6 +63,70 @@ function expandVars(input: unknown, secrets: Record<string, string>): unknown {
   });
 }
 
+function parseYamlFile(): Record<string, unknown> {
+  const absolute = resolve(configPath);
+  if (!existsSync(absolute)) return {};
+  const parsed = parseYaml(readFileSync(absolute, 'utf8'));
+  return parsed && typeof parsed === 'object' ? (parsed as Record<string, unknown>) : {};
+}
+
+/** Recursively expand `${VAR}` in every string leaf, preserving array/object shape. */
+function expandDeep(input: unknown, secrets: Record<string, string>): unknown {
+  if (typeof input === 'string') return expandVars(input, secrets);
+  if (Array.isArray(input)) return input.map((v) => expandDeep(v, secrets));
+  if (input !== null && typeof input === 'object') {
+    const out: Record<string, unknown> = {};
+    for (const [k, v] of Object.entries(input as Record<string, unknown>)) {
+      out[k] = expandDeep(v, secrets);
+    }
+    return out;
+  }
+  return input;
+}
+
+/**
+ * Expand a URL's `${VAR}` refs, returning null if ANY referenced var is unset
+ * (in neither the secret file nor process.env). Used to drop a keyed RPC
+ * endpoint like `.../bsc/${ANKR_API_KEY}` when the key isn't configured, so the
+ * keyless public fallbacks in the list are used instead of a broken URL.
+ */
+function expandUrlOrNull(url: string, secrets: Record<string, string>): string | null {
+  let unresolved = false;
+  const out = url.replace(VAR_RE, (_m, varName: string) => {
+    const val = secrets[varName] ?? process.env[varName];
+    if (val === undefined || val === '') {
+      unresolved = true;
+      return '';
+    }
+    return val;
+  });
+  return unresolved ? null : out;
+}
+
+/**
+ * Structured `chains:` section from config.yaml with `${VAR}` (e.g. the RPC
+ * provider key `${ANKR_API_KEY}`) expanded against the secret file / env. The
+ * chain registry is nested config that doesn't fit the flat UPPER_SNAKE map, so
+ * ChainConfigService reads it through here instead of `loadConfig()`. RPC URLs
+ * whose provider key is unset are dropped (keyless fallbacks remain).
+ */
+export function loadChainsConfig(): unknown[] {
+  const yamlMap = parseYamlFile();
+  const chains = yamlMap['chains'];
+  if (!Array.isArray(chains)) return [];
+  const secrets = readSecretConfig();
+  return chains.map((chain) => {
+    const expanded = expandDeep(chain, secrets) as Record<string, unknown>;
+    const rawRpc = (chain as Record<string, unknown>)?.rpcUrls;
+    if (Array.isArray(rawRpc)) {
+      expanded.rpcUrls = rawRpc
+        .map((u) => (typeof u === 'string' ? expandUrlOrNull(u, secrets) : null))
+        .filter((u): u is string => u !== null);
+    }
+    return expanded;
+  });
+}
+
 /** Stage the path for the config file. Must be called before app.module is imported. */
 export function yamlReader(path: string) {
   configPath = path;
@@ -109,7 +173,11 @@ export function loadConfig(): Record<string, string | number | boolean> {
 
   const secrets = readSecretConfig();
 
-  const flat = flatten(yamlMap, '', {});
+  // `chains:` is nested config read separately via loadChainsConfig(); exclude
+  // it from the flat map so we don't carry a `CHAINS` array (with an unexpanded
+  // ${ANKR_API_KEY} placeholder) as dead noise in the ConfigService map.
+  const { chains: _chains, ...flatSource } = yamlMap;
+  const flat = flatten(flatSource, '', {});
   const expanded: Record<string, string | number | boolean> = {};
   for (const [k, v] of Object.entries(flat)) {
     expanded[k] = expandVars(v, secrets) as string | number | boolean;
@@ -117,9 +185,11 @@ export function loadConfig(): Record<string, string | number | boolean> {
 
   // process.env overrides a declared YAML default (deploy-time override).
   // Scoped to keys the YAML declares so we don't absorb the whole environment.
+  // Ignore an empty value so an ambient `FOO=` can't blank a declared default —
+  // matches the trim-truthy convention used elsewhere (pick/resolveMode/cron).
   for (const k of Object.keys(expanded)) {
     const fromEnv = process.env[k];
-    if (fromEnv !== undefined) expanded[k] = fromEnv;
+    if (fromEnv !== undefined && fromEnv !== '') expanded[k] = fromEnv;
   }
 
   // Secret file wins over YAML and process.env at the same flattened name.

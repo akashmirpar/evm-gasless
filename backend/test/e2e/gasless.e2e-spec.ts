@@ -36,7 +36,7 @@ function makeTransferOp(chainId: number, token: string, recipient: string, human
   };
 }
 
-const supportedFeeTokenAvailable = !!(process.env.E2E_USER_PRIVATE_KEY && process.env.E2E_OPERATOR_PRIVATE_KEY);
+const supportedFeeTokenAvailable = !!((process.env.E2E_USER_PRIVATE_KEY && process.env.E2E_OPERATOR_PRIVATE_KEY) || process.env.TEST_MNEMONIC);
 const describeIfFunded = supportedFeeTokenAvailable ? describe : describe.skip;
 
 describeIfFunded('gasless e2e (real chain)', () => {
