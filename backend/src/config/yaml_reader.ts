@@ -185,9 +185,11 @@ export function loadConfig(): Record<string, string | number | boolean> {
 
   // process.env overrides a declared YAML default (deploy-time override).
   // Scoped to keys the YAML declares so we don't absorb the whole environment.
+  // Ignore an empty value so an ambient `FOO=` can't blank a declared default —
+  // matches the trim-truthy convention used elsewhere (pick/resolveMode/cron).
   for (const k of Object.keys(expanded)) {
     const fromEnv = process.env[k];
-    if (fromEnv !== undefined) expanded[k] = fromEnv;
+    if (fromEnv !== undefined && fromEnv !== '') expanded[k] = fromEnv;
   }
 
   // Secret file wins over YAML and process.env at the same flattened name.

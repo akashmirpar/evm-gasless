@@ -101,6 +101,7 @@ Response:
 
 Same body as `estimate` plus optional fields on Solana:
 
+- `mode?: 'single' | 'bundled'` — broadcast mode (both `estimate` and this endpoint accept it). `single` = classic single tx; `bundled` = Jito atomic bundle for intents that overshoot 1232B. Omit to let the backend choose (defaults to `single`, auto-promoted to `bundled` on wire-size overshoot). **The legacy aliases `g1`/`g2` were removed — a request with `mode: 'g1'` or `'g2'` now returns `400`.**
 - `addressLookupTables?: string[]` — ALT pubkeys from your routing provider's V0 response
 - `userSolPrefundLamports?: string` — absolute override for the SOL prefund (see [Overriding the SOL prefund](#overriding-the-sol-prefund))
 - `userSolPrefundExtraLamports?: string` — additive top-up on the auto-scanned prefund
