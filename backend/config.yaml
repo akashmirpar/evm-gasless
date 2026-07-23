@@ -190,8 +190,8 @@ solana:
     perUrlRetryDelayMs: '250'
   # Comma-separated ATA-create instruction discriminators counted as user-paid.
   ataCreateDiscriminators: '0,1'
-  defaultPriorityMicrolamportsPerCu: '1000'
-  maxPriorityMicrolamportsPerCu: '100000'
+  defaultPriorityMicrolamportsPerCu: '500000'
+  maxPriorityMicrolamportsPerCu: '2000000'
   dynamicPriorityEnabled: 'true'
   dynamicPriorityPercentile: '75'
   minFeeLamports: '666666'
