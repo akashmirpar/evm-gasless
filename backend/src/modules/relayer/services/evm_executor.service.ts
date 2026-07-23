@@ -4,6 +4,7 @@ import { HDNodeWallet, Interface, JsonRpcProvider, Signature, Transaction, Walle
 
 import { PlutonException } from '../../../common/errors';
 import { ChainConfigService } from '../../../core/chain_config/chain_config.service';
+import { redactRpcUrl } from '../../../common/utils/redact_rpc';
 import { RpcService } from '../../../core/rpc/rpc.service';
 import { TransactionRequestEntity } from '../domain/entity/transaction_request.entity';
 import { RelayerErrors } from '../relayer.errors';
@@ -130,7 +131,10 @@ export class EvmExecutorService implements OnModuleInit {
     return this.rpc.withFallback<BroadcastResult>(chainId, async (provider, url) => {
       const tx = await provider.broadcastTransaction(signedTx);
       this.logger.log(`broadcast chain=${chainId} hash=${tx.hash}`);
-      return { txHash: tx.hash, rpcUrl: url };
+      // Redact: the keyed endpoint carries ${ANKR_API_KEY} in its path and this
+      // value is persisted to transaction_request.broadcast_rpc_url (and thus
+      // every DB backup/replica). Only the host is needed post-mortem.
+      return { txHash: tx.hash, rpcUrl: redactRpcUrl(url) };
     });
   }
 
