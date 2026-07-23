@@ -75,4 +75,22 @@ export const GaslessErrors = {
       'Switching between directly-accepted SPL fee tokens (e.g. USDC ↔ xTSLA) does NOT change the size — the prelude shape is identical.',
     service: 'Gasless',
   },
+  PriceUnavailable: {
+    code: ErrorCodes.GASLESS_PRICE_UNAVAILABLE,
+    httpCode: 503,
+    message:
+      'No fresh USD price is available for the native asset or fee token. ' +
+      'The price-refresh job may be failing (Rango /meta outage) or the token is not indexed by Rango. ' +
+      'Retry shortly; if it persists the operator can switch GASLESS_FEE_MODE=bps as a stopgap.',
+    service: 'Gasless',
+  },
+  FeeBelowMaxNetworkCost: {
+    code: ErrorCodes.GASLESS_FEE_BELOW_MAX_NETWORK_COST,
+    httpCode: 422,
+    message:
+      'Refusing to quote: the computed fee is worth less than the ceiling network cost, ' +
+      'so the operator could lose money if the priority-fee auction moves. ' +
+      'Raise the configured profit/markup for this token, or the user should pick a different fee token.',
+    service: 'Gasless',
+  },
 } satisfies Record<string, ErrorInfo>;

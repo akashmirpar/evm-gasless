@@ -1,11 +1,11 @@
 # Architecture
 
-The system supports two networks today, with structurally similar API shape but very different underlying primitives:
+The system supports two transaction families, with structurally similar API shape but very different underlying primitives. Any EIP-7702-capable EVM chain can be added by deploying `GaslessDelegate` and adding a `chains.json` entry — BSC, Base, and Arbitrum are configured today:
 
-- **EVM** (BSC, Base, Arbitrum) — uses EIP-7702 to delegate the user's EOA to a `GaslessDelegate` Solidity contract; the user signs an EIP-712 batch; the operator submits a type-4 transaction.
+- **EVM** (any EIP-7702 chain; BSC, Base, Arbitrum today) — uses EIP-7702 to delegate the user's EOA to a `GaslessDelegate` Solidity contract; the user signs an EIP-712 batch; the operator submits a type-4 transaction.
 - **Solana** — uses Solana's native multi-sig: the operator is the transaction's fee payer (covers SOL); the user co-signs as authority over their own token accounts. No delegation contract.
 
-Most of this doc is written EVM-first because that's the more involved path. The Solana-specific bits are flagged in the relevant sections, and [solana.md](solana.md) is the dedicated Solana reference.
+Most of this doc is written EVM-first because that's the more involved path. The Solana-specific bits are flagged in the relevant sections, and [solana-architecture.md](solana-architecture.md) is the dedicated Solana reference.
 
 ## What the system does in one paragraph
 
@@ -16,7 +16,7 @@ A user wants to execute arbitrary EVM operations from their own EOA but doesn't 
 ```
  ┌──────────────────┐     ┌─────────────────────┐     ┌──────────────────────┐
  │  Client app /    │     │  Gasless backend    │     │  Chain               │
- │  Wallet UI       │     │  (NestJS)           │     │  (BSC/Base/Arbitrum) │
+ │  Wallet UI       │     │  (NestJS)           │     │  (any EVM chain)     │
  │                  │     │                     │     │                      │
  │  - holds user PK │     │  - quotes fee       │     │  - GaslessDelegate   │
  │  - signs EIP-712 │ ──► │  - builds batch     │ ──► │    deployed (used    │
@@ -68,7 +68,7 @@ This matters for integration: if a third party wants to provide a redundant subm
    - Builds the batch: prepends `[transfer]` or `[approve, swap]` to the user's ops.
    - Reads the user EOA's `nonce()` from chain (`max` across configured RPCs).
    - Returns `{ requestId, delegateContractAddress, operations, atomicGroupStart, nonce, digest, expiresAtSeconds }`.
-   - Stashes the prepared batch in Redis with a TTL (default 300s).
+   - Stashes the prepared batch in Redis with a TTL (default 90s).
 3. **Client signs locally**:
    - **EIP-712 signature** over `(operations, atomicGroupStart, nonce)` with `domain = { name: "GaslessDelegate", version: "1", chainId, verifyingContract: userAddress }`.
    - **EIP-7702 authorization tuple** over `(chainId, delegateContractAddress, EOA's tx count)` using the same EOA key.
@@ -94,7 +94,7 @@ The signature is a bearer token until the nonce is consumed: anyone holding the 
 
 | Location | Purpose | TTL |
 |----------|---------|-----|
-| Redis | Prepared-batch stash between `POST /transactions` and `POST /:id/submit`. | `GASLESS_CREATE_TTL_SECONDS`, default 300s. |
+| Redis | Prepared-batch stash between `POST /transactions` and `POST /:id/submit`. | `GASLESS_CREATE_TTL_SECONDS`, default 90s. |
 | Postgres `transaction_request` | Submitted requests, FSM status, retry counters, tx hash. | Permanent until manually pruned. |
 | Postgres `transition_log` | Append-only audit log of every status transition. Debug-only; never read by business logic. | Permanent. |
 | On-chain `GaslessDelegate.nonce` | Per-EOA nonce stored in the delegated EOA's storage. Increments on every successful `executeBatch` (whether atomic group succeeded or not). | On-chain forever. |
@@ -151,4 +151,4 @@ Falls back to a hardcoded `SOLANA_SOL_USD_PRICE × SOLANA_FEE_TOKEN_USD_PRICE` c
 
 Solana requests live in their own `solana_transaction_request` table, with a parallel FSM (`PENDING → BROADCASTING → BROADCASTED → MINED_SUCCESS|MINED_FAILED|FAILED_PERMANENT`). The relayer poller (`SolanaRelayerJob`) is a sibling of the EVM poller — same shape, separate cron registration. The two pollers never race because they read different tables and the operator's Solana keypair and EVM key are different artifacts.
 
-See [solana.md](solana.md) for the API shapes, env vars, and an end-to-end integration sample.
+See [solana-architecture.md](solana-architecture.md) and [integration-guide.md](integration-guide.md) for the API shapes, env vars, and an end-to-end integration sample.

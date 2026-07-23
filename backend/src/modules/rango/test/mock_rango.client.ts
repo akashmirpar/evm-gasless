@@ -2,7 +2,7 @@ import { Injectable } from '@nestjs/common';
 import BigNumber from 'bignumber.js';
 
 import { RangoClient } from '../rango.client';
-import { RangoQuoteRequest, RangoQuoteResult, RangoSwapRequest, RangoSwapResult } from '../rango.types';
+import { RangoMetaToken, RangoQuoteRequest, RangoQuoteResult, RangoSwapRequest, RangoSwapResult } from '../rango.types';
 
 @Injectable()
 export class MockRangoClient extends RangoClient {
@@ -20,6 +20,10 @@ export class MockRangoClient extends RangoClient {
       requestId: 'mock-req',
       raw: null,
     };
+  }
+
+  async meta(): Promise<RangoMetaToken[]> {
+    return [];
   }
 
   async swap(req: RangoSwapRequest): Promise<RangoSwapResult> {

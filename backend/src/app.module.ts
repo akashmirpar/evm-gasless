@@ -14,6 +14,7 @@ import { RequestContextInterceptor } from './core/context/context.interceptor';
 import { ChainConfigModule } from './core/chain_config/chain_config.module';
 import { AppDataSource, buildDataSourceOptions } from './core/database/data-source';
 import { HealthModule } from './core/health/health.module';
+import { PricingModule } from './core/pricing';
 import { RpcModule } from './core/rpc/rpc.module';
 import { TokenMetadataModule } from './core/token_metadata/token_metadata.module';
 import { AdminModule } from './modules/admin/admin.module';
@@ -70,6 +71,7 @@ import { RelayerSolanaModule } from './modules/relayer-solana/relayer-solana.mod
     ChainConfigModule,
     RpcModule,
     TokenMetadataModule,
+    PricingModule,
     HealthModule,
     AuthModule,
     AdminModule,

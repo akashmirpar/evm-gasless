@@ -12,6 +12,7 @@ Source of truth: [`backend/src/common/errors/codes.ts`](../backend/src/common/er
 | `3xxxx` | Rango client |
 | `4xxxx` | Gasless flow (estimate, create, submit, status) |
 | `5xxxx` | Relayer |
+| `6xxxx` | Auth (integrator API key + admin) |
 | `8xxxx` | Health |
 | `9xxxx` | System / framework |
 
@@ -25,7 +26,7 @@ A boot-time validator throws if two codes collide. Don't reuse numbers — pick 
 | `20002` | 503 | `CHAIN_RPC_UNAVAILABLE` | All configured RPCs for a chain failed. | Transient infra issue. Retry with backoff; if persistent, the backend's RPC config is broken. |
 | `20003` | 503 | `CHAIN_NO_DEPLOYED_CONTRACT` | The chain is supported but `GaslessDelegate` hasn't been deployed (no entry in `deployed.json` for this chainId). | Show "gasless not available on this chain yet". |
 | `20004` | 400 | `CHAIN_TOKEN_NOT_FOUND` | The `feeTokenAddress` isn't in the chain's `tokens` list in `config.yaml` for this chain. The backend needs decimal metadata to quote correctly. | Prompt user to pick a different fee token (one your UI lists from the chain's known tokens). |
-| `20005` | 500 | `CHAIN_GAS_ESTIMATION_FAILED` | RPC `eth_estimateGas` failed for all operator user ops. | Falls back internally to `GASLESS_DEFAULT_GAS_UNITS` — this code is rarely surfaced. If you see it, retry. |
+| `20005` | 502 | `CHAIN_GAS_ESTIMATION_FAILED` | RPC returned no usable gas price, or 0 total gas across all ops (an RPC anomaly). The estimator refuses to substitute a default here rather than silently under-quote. | Transient RPC issue — retry. |
 
 ## Rango (3xxxx)
 
@@ -46,6 +47,12 @@ A boot-time validator throws if two codes collide. Don't reuse numbers — pick 
 | `40005` | 400 | `GASLESS_INVALID_SIGNATURE` | The EIP-712 signature provided to `/submit` doesn't recover to `userAddress`. | Re-sign. Common causes: wrong domain (verifyingContract must be the user's EOA, not the delegate contract), tampered `operations`, wrong nonce. |
 | `40006` | 400 | `GASLESS_INVALID_AUTHORIZATION` | The EIP-7702 authorization tuple's `address` or `chainId` doesn't match the prepared batch, or its `signature` is malformed. | Re-sign the authorization with the correct `delegateContractAddress` and `chainId`. |
 | `40007` | 409 | `GASLESS_REQUEST_ALREADY_SUBMITTED` | `/submit` called twice for the same `requestId`. The first call already persisted a row. | Idempotent retry: just call `GET /:requestId` to read current status; don't resubmit. |
+| `40008` | 422 | `GASLESS_TX_TOO_LARGE` | Solana composed tx exceeds the 1232-byte wire limit and no bundle rung fits (or explicit `mode: 'single'` overflowed). | Omit `mode` for auto bundle fallback, or split the intent. |
+| `40009` | 422 | `GASLESS_INSUFFICIENT_FEE_BALANCE` | At submit, the user's on-chain fee-token balance is below `feeAmount + intentOutflow`. No broadcast happens. | User must top up the fee token or pick another. |
+| `40010` | 422 | `GASLESS_FEE_TOKEN_UNREADABLE` | Solana: the user's fee-token ATA doesn't exist or its data can't be parsed. | Check the mint / that the user's ATA exists. |
+| `40011` | 400 | `GASLESS_SOLANA_SIMULATION_REVERT` | The composed tx was simulated and would revert; the service refuses to quote a doomed tx. | Retry with a fresh aggregator quote. `causes[0].err`/`logs` pinpoint the revert **only when `GASLESS_EXPOSE_ERROR_CAUSES=true`** (off by default; they're always in the server logs). |
+| `40014` | 503 | `GASLESS_PRICE_UNAVAILABLE` | No fresh price for the native asset or the fee token — the Rango `/meta` price blob is stale (older than `GASLESS_PRICE_MAX_AGE_SECONDS`) or missing the token. Only reachable in `fixed` fee mode or with the no-loss check on. | Transient — retry with backoff. Operator can switch `GASLESS_FEE_MODE=bps` as a stopgap (bps mode needs no price feed). |
+| `40015` | 422 | `GASLESS_FEE_BELOW_MAX_NETWORK_COST` | The computed fee is below the no-loss ceiling (`simulatedCost × (1 + GASLESS_PRIORITY_HEADROOM_BPS)`), priced into the settlement token. Fires only when `GASLESS_NO_LOSS_CHECK` is on. | No — the quote is rejected as unprofitable. Operator must raise the token's profit/markup or the user must pick another fee token. |
 
 ## Relayer (5xxxx)
 
@@ -55,8 +62,26 @@ Most of these are internal — they end up as `failureReason` text on the `trans
 |------|------|----------------|
 | `50001` | `RELAYER_BROADCAST_FAILED` | All RPCs rejected the type-4 tx. Retried with backoff; eventually escalates to `FAILED_PERMANENT`. |
 | `50002` | `RELAYER_TX_NOT_MINED` | Receipt poll timed out. The relayer re-checks on the next tick; rarely surfaces as a hard error. |
+| `50003` | `RELAYER_TX_REVERTED` | Receipt arrived with status 0 (EVM) / err set (Solana) → `MINED_FAILED`. |
+| `50004` | `RELAYER_GAVE_UP` | Retry budget exhausted before a terminal on-chain state → `FAILED_PERMANENT`. |
+| `50005` | `RELAYER_SOLANA_BROADCAST_REJECTED` | Solana RPC rejected `sendRawTransaction` with a structured error → `FAILED_PERMANENT`. |
+| `50006` | `RELAYER_SOLANA_MARKET_REJECTION` | On-chain revert with a market-rejection signature (Jupiter Custom 6024 etc.); `failureCategory: market_rejection`. |
 | `50003` | `RELAYER_TX_REVERTED` | Receipt arrived with `status === 0`. The status row goes to `MINED_FAILED`. |
 | `50004` | `RELAYER_GAVE_UP` | Retry budget exhausted before reaching a terminal on-chain state. Row transitions to `FAILED_PERMANENT`. Manual operator action required. |
+
+
+## Auth (6xxxx)
+
+| Code | HTTP | Name | When it fires |
+|------|------|------|----------------|
+| `60001` | 401 | `AUTH_UNAUTHORIZED` | Missing/unknown/inactive/expired `x-api-key`. |
+| `60002` | 403 | `AUTH_FORBIDDEN` | IP not whitelisted for the key, or per-IP failed-auth budget burned. |
+| `60003` | 429 | `AUTH_RATE_LIMITED` | Per-key requests-per-second budget exceeded. |
+| `61001` | 404 | `ADMIN_API_KEY_NOT_FOUND` | Admin mutation targeted a nonexistent integrator key. |
+| `61002` | 409 | `ADMIN_CANNOT_DEACTIVATE_LAST_ADMIN` | Refuses to lock the operator out of the admin surface. |
+| `61003` | 409 | `ADMIN_KEY_ALREADY_EXISTS` | Generated key collision (retry). |
+| `61004` | 404 | `ADMIN_NOT_FOUND` | Admin mutation targeted a nonexistent admin. |
+| `61005` | 409 | `ADMIN_NAME_TAKEN` | Admin name already in use. |
 
 ## Health (8xxxx)
 

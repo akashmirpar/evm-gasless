@@ -59,3 +59,15 @@ export interface RangoSwapResult {
   solanaTransaction?: RangoSolanaCall;
   raw: unknown;
 }
+
+/**
+ * One token entry from Rango `/basic/meta`. `usdPrice` is null when Rango has
+ * no price feed for the token. `address` is null for a chain's native asset.
+ */
+export interface RangoMetaToken {
+  chainName: string;
+  address: string | null;
+  symbol: string;
+  decimals: number;
+  usdPrice: number | null;
+}

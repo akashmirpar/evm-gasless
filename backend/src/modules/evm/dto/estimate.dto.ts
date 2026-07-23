@@ -45,4 +45,8 @@ export class EstimateResponseDto {
     outputToken: string;
     outputAmount: string;
   };
+  /** USD value of the fee the user pays. Best-effort; omitted if no price. */
+  feeUsd?: string;
+  /** USD value of the raw (pre-margin) network cost. Best-effort. */
+  estimatedNativeCostUsd?: string;
 }

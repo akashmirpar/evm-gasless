@@ -197,6 +197,14 @@ export function loadConfig(): Record<string, string | number | boolean> {
     expanded[k] = v;
   }
 
+  // Mirror the resolved config back onto process.env so services that still read
+  // process.env.* directly (pricing/fee_policy, prefund sizing, price refresh,
+  // exception filter) see the SAME values as ConfigService consumers. Runs during
+  // ConfigModule init, before any service constructor reads process.env.
+  for (const [k, v] of Object.entries(expanded)) {
+    process.env[k] = String(v);
+  }
+
   merged = expanded;
   return merged;
 }
