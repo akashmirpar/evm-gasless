@@ -33,11 +33,6 @@ const VAR_RE = /\$\{([A-Z0-9_]+)\}/g;
 
 const SECRET_KEY_PATTERNS = [/_MNEMONIC$/, /_PRIVATE_KEY$/, /_PASSWORD$/, /_API_KEY$/, /_SECRET$/, /_UUID$/, /_TOKEN$/];
 
-/** Renamed knobs still honored (with a boot warning) when set under the old name. */
-const LEGACY_KEY_ALIASES: Record<string, string> = {
-  SOLANA_G2_ENABLED: 'SOLANA_BUNDLED_MODE_ENABLED',
-};
-
 /** Keys never mirrored onto process.env (see the mirror loop in loadConfig). */
 export function isSecretKey(key: string): boolean {
   return SECRET_KEY_PATTERNS.some((re) => re.test(key));
@@ -280,20 +275,6 @@ export function loadConfig(): Record<string, string | number | boolean> {
   // the secret file (`GASLESS_TX_GAS_LIMIT=`) must not shadow the YAML default.
   for (const [k, v] of Object.entries(secrets)) {
     if (v !== '') expanded[k] = v;
-  }
-
-  // Legacy key aliases: a renamed knob still set in an existing secret file must
-  // keep working, or the rename silently reverts a safety flag. The new name's
-  // YAML default would otherwise shadow the legacy value, so an explicitly-set
-  // legacy key wins over the YAML default (but not over an explicit new key).
-  for (const [legacy, current] of Object.entries(LEGACY_KEY_ALIASES)) {
-    const legacyValue = secrets[legacy] ?? process.env[legacy];
-    if (legacyValue === undefined || legacyValue === '') continue;
-    const currentExplicit = (secrets[current] ?? process.env[current]) !== undefined;
-    if (!currentExplicit) expanded[current] = legacyValue;
-    logger.warn(
-      `${legacy} is a legacy name for ${current}; ${currentExplicit ? `${current} is set and wins` : `honoring ${legacy}=${legacyValue}`}. Rename it in the secret file.`,
-    );
   }
 
   // Treat any key that resolved to '' as ABSENT. An empty value reaches a

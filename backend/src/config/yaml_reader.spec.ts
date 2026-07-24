@@ -264,34 +264,6 @@ describe('yamlReader / loadConfig', () => {
     delete process.env.GASLESS_ENV_FILE;
   });
 
-  it('honors the legacy SOLANA_G2_ENABLED name over the YAML default for the new key', () => {
-    const dir = mkdtempSync(join(tmpdir(), 'gasless-cfg-'));
-    const yamlPath = join(dir, 'config.yaml');
-    const envPath = join(dir, 'env');
-    writeFileSync(yamlPath, ['solana:', "  bundledModeEnabled: 'true'"].join('\n'));
-    writeFileSync(envPath, 'SOLANA_G2_ENABLED=false\n'); // legacy kill-switch still set
-    process.env.GASLESS_ENV_FILE = envPath;
-
-    yamlReader(yamlPath);
-    const cfg = loadConfig();
-
-    expect(cfg.SOLANA_BUNDLED_MODE_ENABLED).toBe('false');
-    delete process.env.GASLESS_ENV_FILE;
-  });
-
-  it('the explicit new key wins over the legacy alias', () => {
-    const dir = mkdtempSync(join(tmpdir(), 'gasless-cfg-'));
-    const yamlPath = join(dir, 'config.yaml');
-    const envPath = join(dir, 'env');
-    writeFileSync(yamlPath, ['solana:', "  bundledModeEnabled: 'true'"].join('\n'));
-    writeFileSync(envPath, 'SOLANA_BUNDLED_MODE_ENABLED=true\nSOLANA_G2_ENABLED=false\n');
-    process.env.GASLESS_ENV_FILE = envPath;
-
-    yamlReader(yamlPath);
-    expect(loadConfig().SOLANA_BUNDLED_MODE_ENABLED).toBe('true');
-    delete process.env.GASLESS_ENV_FILE;
-  });
-
   it('CHAINS_<NAME>_RPC_URLS overrides a chain rpcUrls at deploy time', () => {
     const dir = mkdtempSync(join(tmpdir(), 'gasless-cfg-'));
     const yamlPath = join(dir, 'config.yaml');
