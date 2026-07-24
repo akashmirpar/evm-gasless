@@ -36,6 +36,7 @@ const REQUIRED = [
   'DATABASE_POSTGRES_PASSWORD=pw',
   'GASLESS_TREASURY_ADDRESS=0xabc',
   'GASLESS_SOLANA_TREASURY_ADDRESS=SoLtreasury',
+  'ANKR_API_KEY=ankrkey',
 ];
 
 describe('assertRequiredSecrets (production)', () => {
@@ -72,6 +73,13 @@ describe('assertRequiredSecrets (production)', () => {
   it('names every missing required secret at once', () => {
     withSecrets(['OPERATOR_MNEMONIC=seed'], () => {
       expect(() => assertRequiredSecrets('production')).toThrow(/DATABASE_POSTGRES_PASSWORD/);
+    });
+  });
+
+  it('requires ANKR_API_KEY in production (else the fleet runs on public RPCs)', () => {
+    const noAnkr = REQUIRED.filter((l) => !l.startsWith('ANKR_API_KEY='));
+    withSecrets([...noAnkr, 'OPERATOR_MNEMONIC=seed'], () => {
+      expect(() => assertRequiredSecrets('production')).toThrow(/ANKR_API_KEY/);
     });
   });
 });

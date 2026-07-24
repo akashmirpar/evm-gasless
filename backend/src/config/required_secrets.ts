@@ -14,6 +14,11 @@ const REQUIRED_IN_PRODUCTION = [
   'DATABASE_POSTGRES_PASSWORD',
   'GASLESS_TREASURY_ADDRESS',
   'GASLESS_SOLANA_TREASURY_ADDRESS',
+  // The RPC provider key. Unset, loadChainsConfig drops every keyed endpoint
+  // and the whole fleet silently runs on rate-limited public RPCs (only a boot
+  // warning) — a broadcast path degradation that shows up as 429s under load.
+  // Fail fast in production instead.
+  'ANKR_API_KEY',
 ];
 
 // Both relayers resolve their operator at boot and RelayerModule/SolanaModule
