@@ -1,8 +1,10 @@
 import 'reflect-metadata';
-// Stage the yaml+secret config path BEFORE app.module (and thus ConfigModule)
-// is imported below, so loadConfig() reads the intended file. The merged
-// yaml+secret map (src/config) is the single source of truth — this replaces
-// the old dotenv/process.env reads.
+// Stage the yaml+secret config path before anything RESOLVES config. `AppModule`
+// is imported lazily (dynamic import in bootstrap below), and loadConfig() is
+// itself lazy — invoked at NestFactory.create, not at import — so yamlReader()
+// runs first. If a module on the import graph ever calls loadConfig() at
+// top-level, this staging would be too late; keep config resolution lazy.
+// The merged yaml+secret map (src/config) is the single source of truth.
 import { parseConfigPath, yamlReader } from './config';
 import { assertRequiredSecrets } from './config/required_secrets';
 

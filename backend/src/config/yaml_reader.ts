@@ -28,6 +28,7 @@ const logger = new Logger('ConfigLoader');
 
 let configPath = './config.yaml';
 let merged: Record<string, string | number | boolean> | null = null;
+let mirroredKeys: string[] = [];
 
 const VAR_RE = /\$\{([A-Z0-9_]+)\}/g;
 
@@ -297,8 +298,14 @@ export function loadConfig(): Record<string, string | number | boolean> {
   // the same exposure docs/secrets-and-config-convention.md forbids in
   // docker-compose `environment:`. Nothing in src/ reads a secret this way;
   // secrets are resolved through ConfigService / readSecretConfig().
+  // Track only the keys the mirror INTRODUCES (absent from process.env before),
+  // so __resetConfigCache can undo them. Without this, a key mirrored on one boot
+  // survives on process.env and the env-override fold on the next boot picks up
+  // that stale value, shadowing the new YAML — a nondeterminism trap for the
+  // multi-boot e2e harness. Pre-existing env vars (real overrides) are left alone.
   for (const [k, v] of Object.entries(expanded)) {
     if (isSecretKey(k)) continue;
+    if (!(k in process.env)) mirroredKeys.push(k);
     process.env[k] = String(v);
   }
 
@@ -308,4 +315,8 @@ export function loadConfig(): Record<string, string | number | boolean> {
 
 export function __resetConfigCache() {
   merged = null;
+  // Undo the mirror so a re-boot doesn't inherit the previous boot's values via
+  // the env-override fold. Only keys the mirror introduced are removed.
+  for (const k of mirroredKeys) delete process.env[k];
+  mirroredKeys = [];
 }

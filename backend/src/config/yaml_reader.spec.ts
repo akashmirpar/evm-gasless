@@ -264,6 +264,48 @@ describe('yamlReader / loadConfig', () => {
     delete process.env.GASLESS_ENV_FILE;
   });
 
+  it('a secret-file SOLANA_BUNDLED_MODE_ENABLED=false reaches the resolved map (full-stack disable)', () => {
+    // The card exists partly because a YAML literal once masked this disable
+    // path. Prove the secret-file value survives the fold + empty-drop and the
+    // mirror all the way to the resolved map that resolveMode reads.
+    const dir = mkdtempSync(join(tmpdir(), 'gasless-cfg-'));
+    const yamlPath = join(dir, 'config.yaml');
+    const envPath = join(dir, 'env');
+    writeFileSync(yamlPath, ['solana:', "  bundledModeEnabled: 'true'"].join('\n'));
+    writeFileSync(envPath, 'SOLANA_BUNDLED_MODE_ENABLED=false\n');
+    process.env.GASLESS_ENV_FILE = envPath;
+
+    yamlReader(yamlPath);
+    expect(loadConfig().SOLANA_BUNDLED_MODE_ENABLED).toBe('false');
+    delete process.env.GASLESS_ENV_FILE;
+  });
+
+  it('__resetConfigCache removes mirrored keys so a re-boot does not inherit stale values', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'gasless-cfg-'));
+    const emptySecrets = join(dir, 'empty.env');
+    writeFileSync(emptySecrets, '');
+    process.env.GASLESS_ENV_FILE = emptySecrets;
+    delete process.env.SOLANA_MODE_DEFAULT;
+
+    // Boot A: YAML sets mode default 'bundled' -> mirrored onto process.env.
+    const yamlA = join(dir, 'a.yaml');
+    writeFileSync(yamlA, ['solana:', "  modeDefault: 'bundled'"].join('\n'));
+    yamlReader(yamlA);
+    expect(loadConfig().SOLANA_MODE_DEFAULT).toBe('bundled');
+    expect(process.env.SOLANA_MODE_DEFAULT).toBe('bundled');
+
+    __resetConfigCache();
+    // The mirror must be undone, or boot B's env fold would pick up 'bundled'.
+    expect(process.env.SOLANA_MODE_DEFAULT).toBeUndefined();
+
+    // Boot B: YAML sets 'single'; must win, not the stale mirrored 'bundled'.
+    const yamlB = join(dir, 'b.yaml');
+    writeFileSync(yamlB, ['solana:', "  modeDefault: 'single'"].join('\n'));
+    yamlReader(yamlB);
+    expect(loadConfig().SOLANA_MODE_DEFAULT).toBe('single');
+    delete process.env.GASLESS_ENV_FILE;
+  });
+
   it('CHAINS_<NAME>_RPC_URLS overrides a chain rpcUrls at deploy time', () => {
     const dir = mkdtempSync(join(tmpdir(), 'gasless-cfg-'));
     const yamlPath = join(dir, 'config.yaml');
