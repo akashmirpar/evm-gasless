@@ -891,7 +891,6 @@ This section is for whoever runs the gasless backend, not integrators. Integrato
 | `OPERATOR_PRIVATE_KEY` / `SOLANA_OPERATOR_PRIVATE_KEY` / `SOLANA_OPERATOR_MNEMONIC` (+`SOLANA_OPERATOR_ACCOUNT_INDEX`) | Legacy per-chain fallbacks, used only when `OPERATOR_MNEMONIC` is unset. |
 | `GASLESS_TREASURY_ADDRESS` | EVM address that receives user fees. Unset → every accepted-fee request throws (the address is used directly in the transfer, no fallback). Required in production. |
 | `GASLESS_SOLANA_TREASURY_ADDRESS` | Solana address that receives user fees. Unset → **falls back to the operator's own pubkey**, silently banking user fees in the operator wallet (a boot warning is logged). Required in production. |
-| `GASLESS_SOLANA_TREASURY_ADDRESS` | Solana base58 pubkey receiving fees. Defaults to operator pubkey (same warning applies). |
 | `ANKR_API_KEY` | RPC provider key, interpolated into each chain's keyed endpoint in `config.yaml` (`${ANKR_API_KEY}`). Unset → the keyed endpoint is dropped and the keyless public fallbacks are used. RPC endpoints themselves live in `config.yaml` (`chains[].rpcUrls`). To override them at deploy time without a rebuild, set `CHAINS_<NAME>_RPC_URLS` or `CHAINS_<chainId>_RPC_URLS` (comma-separated), e.g. `CHAINS_BSC_RPC_URLS` / `CHAINS_56_RPC_URLS`. The pre-RIN-135 `<CHAIN>_RPC_URLS` form is no longer read (the loader warns if one is still set). |
 | `RANGO_API_URL`, `RANGO_API_KEY` | Rango Basic API credentials. |
 

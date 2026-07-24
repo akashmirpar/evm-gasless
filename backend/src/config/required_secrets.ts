@@ -16,11 +16,12 @@ const REQUIRED_IN_PRODUCTION = [
   'GASLESS_SOLANA_TREASURY_ADDRESS',
 ];
 
-// The EVM relayer resolves its operator at boot from OPERATOR_MNEMONIC or
-// OPERATOR_PRIVATE_KEY specifically (EvmExecutorService.onModuleInit), and
-// RelayerModule is always imported. So an EVM-capable seed is separately
-// required — a Solana-only seed would pass a generic check and then crash DI.
+// Both relayers resolve their operator at boot and RelayerModule/SolanaModule
+// are always imported, so BOTH an EVM-capable and a Solana-capable seed must
+// exist — validated here with a clear message rather than as an opaque DI crash.
+// OPERATOR_MNEMONIC satisfies both (it derives EVM m/44'/60' and Solana m/44'/501').
 const EVM_SEED_KEYS = ['OPERATOR_MNEMONIC', 'OPERATOR_PRIVATE_KEY'];
+const SOLANA_SEED_KEYS = ['OPERATOR_MNEMONIC', 'SOLANA_OPERATOR_MNEMONIC', 'SOLANA_OPERATOR_PRIVATE_KEY'];
 
 export function assertRequiredSecrets(nodeEnv: string | undefined = process.env.NODE_ENV): void {
   if ((nodeEnv ?? '').toLowerCase() !== 'production') return;
@@ -30,7 +31,10 @@ export function assertRequiredSecrets(nodeEnv: string | undefined = process.env.
   const missing = REQUIRED_IN_PRODUCTION.filter((key) => !value(key));
 
   if (!EVM_SEED_KEYS.some((key) => value(key))) {
-    missing.push(`one of ${EVM_SEED_KEYS.join(' / ')}`);
+    missing.push(`an EVM operator seed (one of ${EVM_SEED_KEYS.join(' / ')})`);
+  }
+  if (!SOLANA_SEED_KEYS.some((key) => value(key))) {
+    missing.push(`a Solana operator seed (one of ${SOLANA_SEED_KEYS.join(' / ')})`);
   }
 
   if (missing.length > 0) {
