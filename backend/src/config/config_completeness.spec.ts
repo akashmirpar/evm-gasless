@@ -2,6 +2,8 @@ import { readFileSync, readdirSync, statSync } from 'fs';
 import { load as parseYaml } from 'js-yaml';
 import { join, resolve } from 'path';
 
+import { isSecretKey } from './yaml_reader';
+
 /**
  * Guards the RIN-135 acceptance criterion: config.yaml holds all public config
  * and .env holds only secrets. Both Criticals from the RIN-135 review were keys
@@ -92,6 +94,19 @@ describe('config completeness (config.yaml vs the keys src/ reads)', () => {
       .map(([key, file]) => `${key} (${file})`);
 
     expect(undeclared).toEqual([]);
+  });
+
+  // The mirror only writes non-secret keys onto process.env, so a knob READ via
+  // process.env whose name matches a secret pattern would silently miss the
+  // mirror and revert to its code default. Renaming a knob into a *_TOKEN/_SECRET
+  // suffix would trip this rather than ship a stale default (the class the
+  // percentile revert belonged to).
+  it('no process.env-read knob in src/ has a secret-shaped name that the mirror would drop', () => {
+    const mirrorMisses = [...readKeys(/process\.env\.([A-Z][A-Z0-9_]*)/g)]
+      .filter(([key]) => !RUNTIME_KEYS.has(key) && isSecretKey(key))
+      .map(([key, file]) => `${key} (${file})`);
+
+    expect(mirrorMisses).toEqual([]);
   });
 
   it('config.yaml carries no literal secret — secret-shaped keys are ${VAR} references only', () => {

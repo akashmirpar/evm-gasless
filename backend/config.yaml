@@ -55,8 +55,10 @@ DEPLOYED_JSON_PATH: '${DEPLOYED_JSON_PATH}'
 # Number() and rejects non-integers at boot, so a quoted value is caught rather
 # than silently keying the registry by a string.
 #
-# Deploy-time override without rebuilding the image: set `CHAINS_<chainId>_RPC_URLS`
-# (comma-separated) in the secret file or process.env, e.g.
+# Deploy-time override without rebuilding the image: set either
+# `CHAINS_<NAME>_RPC_URLS` or `CHAINS_<chainId>_RPC_URLS` (comma-separated) in the
+# secret file or process.env — both forms work, e.g. for BSC:
+#   CHAINS_BSC_RPC_URLS=https://my-paid-bsc,https://backup-bsc
 #   CHAINS_56_RPC_URLS=https://my-paid-bsc,https://backup-bsc
 chains:
   - chainId: 56

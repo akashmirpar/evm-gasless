@@ -230,4 +230,129 @@ describe('yamlReader / loadConfig', () => {
 
     delete process.env.GASLESS_ENV_FILE;
   });
+
+  it('drops a blanked secret-file override so the YAML default stands (no "" -> 0)', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'gasless-cfg-'));
+    const yamlPath = join(dir, 'config.yaml');
+    const envPath = join(dir, 'env');
+    writeFileSync(yamlPath, ['gasless:', "  txGasLimit: '2000000'"].join('\n'));
+    writeFileSync(envPath, 'GASLESS_TX_GAS_LIMIT=\n'); // operator blanks the knob
+    process.env.GASLESS_ENV_FILE = envPath;
+
+    yamlReader(yamlPath);
+    const cfg = loadConfig();
+
+    // Must keep the YAML default, NOT become '' (which BigInt('') would make 0n).
+    expect(cfg.GASLESS_TX_GAS_LIMIT).toBe('2000000');
+    delete process.env.GASLESS_ENV_FILE;
+  });
+
+  it('treats a key whose ${VAR} is unset as absent, not "" (would zero a numeric knob)', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'gasless-cfg-'));
+    const yamlPath = join(dir, 'config.yaml');
+    const emptySecrets = join(dir, 'empty.env');
+    writeFileSync(emptySecrets, '');
+    writeFileSync(yamlPath, ['gasless:', "  createTtlSeconds: '${GASLESS_CREATE_TTL_SECONDS}'"].join('\n'));
+    process.env.GASLESS_ENV_FILE = emptySecrets;
+    delete process.env.GASLESS_CREATE_TTL_SECONDS;
+
+    yamlReader(yamlPath);
+    const cfg = loadConfig();
+
+    expect(cfg.GASLESS_CREATE_TTL_SECONDS).toBeUndefined();
+    expect('GASLESS_CREATE_TTL_SECONDS' in cfg).toBe(false);
+    delete process.env.GASLESS_ENV_FILE;
+  });
+
+  it('honors the legacy SOLANA_G2_ENABLED name over the YAML default for the new key', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'gasless-cfg-'));
+    const yamlPath = join(dir, 'config.yaml');
+    const envPath = join(dir, 'env');
+    writeFileSync(yamlPath, ['solana:', "  bundledModeEnabled: 'true'"].join('\n'));
+    writeFileSync(envPath, 'SOLANA_G2_ENABLED=false\n'); // legacy kill-switch still set
+    process.env.GASLESS_ENV_FILE = envPath;
+
+    yamlReader(yamlPath);
+    const cfg = loadConfig();
+
+    expect(cfg.SOLANA_BUNDLED_MODE_ENABLED).toBe('false');
+    delete process.env.GASLESS_ENV_FILE;
+  });
+
+  it('the explicit new key wins over the legacy alias', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'gasless-cfg-'));
+    const yamlPath = join(dir, 'config.yaml');
+    const envPath = join(dir, 'env');
+    writeFileSync(yamlPath, ['solana:', "  bundledModeEnabled: 'true'"].join('\n'));
+    writeFileSync(envPath, 'SOLANA_BUNDLED_MODE_ENABLED=true\nSOLANA_G2_ENABLED=false\n');
+    process.env.GASLESS_ENV_FILE = envPath;
+
+    yamlReader(yamlPath);
+    expect(loadConfig().SOLANA_BUNDLED_MODE_ENABLED).toBe('true');
+    delete process.env.GASLESS_ENV_FILE;
+  });
+
+  it('CHAINS_<NAME>_RPC_URLS overrides a chain rpcUrls at deploy time', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'gasless-cfg-'));
+    const yamlPath = join(dir, 'config.yaml');
+    const envPath = join(dir, 'env');
+    writeFileSync(
+      yamlPath,
+      [
+        'chains:',
+        '  - chainId: 56',
+        "    name: 'bsc'",
+        '    rpcUrls:',
+        "      - 'https://bsc-rpc.publicnode.com'",
+      ].join('\n'),
+    );
+    writeFileSync(envPath, 'CHAINS_BSC_RPC_URLS=https://paid-a,https://paid-b\n');
+    process.env.GASLESS_ENV_FILE = envPath;
+
+    yamlReader(yamlPath);
+    const chains = loadChainsConfig() as Array<{ rpcUrls: string[] }>;
+    expect(chains[0].rpcUrls).toEqual(['https://paid-a', 'https://paid-b']);
+    delete process.env.GASLESS_ENV_FILE;
+  });
+
+  it('CHAINS_<chainId>_RPC_URLS also overrides (numeric form)', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'gasless-cfg-'));
+    const yamlPath = join(dir, 'config.yaml');
+    const envPath = join(dir, 'env');
+    writeFileSync(
+      yamlPath,
+      ['chains:', '  - chainId: 56', "    name: 'bsc'", '    rpcUrls:', "      - 'https://public'"].join('\n'),
+    );
+    writeFileSync(envPath, 'CHAINS_56_RPC_URLS=https://by-id\n');
+    process.env.GASLESS_ENV_FILE = envPath;
+
+    yamlReader(yamlPath);
+    const chains = loadChainsConfig() as Array<{ rpcUrls: string[] }>;
+    expect(chains[0].rpcUrls).toEqual(['https://by-id']);
+    delete process.env.GASLESS_ENV_FILE;
+  });
+
+  it('never mirrors a secret-shaped key (mnemonic, uuid) onto process.env', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'gasless-cfg-'));
+    const yamlPath = join(dir, 'config.yaml');
+    const envPath = join(dir, 'env');
+    writeFileSync(yamlPath, ['service:', "  port: '3100'"].join('\n'));
+    writeFileSync(envPath, 'OPERATOR_MNEMONIC=test test junk\nSOLANA_JITO_UUID=secret-uuid\n');
+    process.env.GASLESS_ENV_FILE = envPath;
+    delete process.env.OPERATOR_MNEMONIC;
+    delete process.env.SOLANA_JITO_UUID;
+
+    yamlReader(yamlPath);
+    const cfg = loadConfig();
+
+    // Resolvable through the config map…
+    expect(cfg.OPERATOR_MNEMONIC).toBe('test test junk');
+    expect(cfg.SOLANA_JITO_UUID).toBe('secret-uuid');
+    // …but never leaked onto process.env (readable via /proc, inherited by children).
+    expect(process.env.OPERATOR_MNEMONIC).toBeUndefined();
+    expect(process.env.SOLANA_JITO_UUID).toBeUndefined();
+    // A non-secret key from the same file IS mirrored.
+    expect(process.env.SERVICE_PORT).toBe('3100');
+    delete process.env.GASLESS_ENV_FILE;
+  });
 });

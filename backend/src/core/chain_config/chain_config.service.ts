@@ -54,7 +54,12 @@ export class ChainConfigService implements OnModuleInit {
     const evmTreasury = (this.config.get<string>('GASLESS_TREASURY_ADDRESS') ?? '').trim();
     const solanaTreasury = (this.config.get<string>('GASLESS_SOLANA_TREASURY_ADDRESS') ?? '').trim();
     if (!evmTreasury) {
-      this.logger.warn('GASLESS_TREASURY_ADDRESS not set — EVM endpoints that need it will fail');
+      this.logger.warn('GASLESS_TREASURY_ADDRESS not set — EVM accepted-fee requests will fail (no fallback)');
+    }
+    if (!solanaTreasury) {
+      // Unlike EVM, the Solana path falls back to the operator's own pubkey, so
+      // an unset treasury silently banks user fees in the operator wallet.
+      this.logger.warn('GASLESS_SOLANA_TREASURY_ADDRESS not set — user fees will accrue to the OPERATOR wallet, not a treasury');
     }
 
     // Env-var-driven accepted list is retained only for Solana (the whitelist

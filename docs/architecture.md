@@ -145,7 +145,7 @@ Solana uses the same `RangoClient.quote()` to convert SOL → user's fee token. 
 2. `gasUnits × priorityFee + baseFee` = SOL cost in lamports, plus the markup.
 3. `rango.quote({ from: SOL, to: feeToken, amount: lamports })` → fee in the user's token's smallest unit.
 
-Falls back to a hardcoded `SOLANA_SOL_USD_PRICE × SOLANA_FEE_TOKEN_USD_PRICE` cross only if Rango is unreachable.
+If Rango is unreachable the request fails closed (no hardcoded USD-price fallback — that would risk silently under-quoting the fee).
 
 ### Persistence
 

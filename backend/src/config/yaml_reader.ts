@@ -31,7 +31,12 @@ let merged: Record<string, string | number | boolean> | null = null;
 
 const VAR_RE = /\$\{([A-Z0-9_]+)\}/g;
 
-const SECRET_KEY_PATTERNS = [/_MNEMONIC$/, /_PRIVATE_KEY$/, /_PASSWORD$/, /_API_KEY$/, /_SECRET$/];
+const SECRET_KEY_PATTERNS = [/_MNEMONIC$/, /_PRIVATE_KEY$/, /_PASSWORD$/, /_API_KEY$/, /_SECRET$/, /_UUID$/, /_TOKEN$/];
+
+/** Renamed knobs still honored (with a boot warning) when set under the old name. */
+const LEGACY_KEY_ALIASES: Record<string, string> = {
+  SOLANA_G2_ENABLED: 'SOLANA_BUNDLED_MODE_ENABLED',
+};
 
 /** Keys never mirrored onto process.env (see the mirror loop in loadConfig). */
 export function isSecretKey(key: string): boolean {
@@ -271,8 +276,35 @@ export function loadConfig(): Record<string, string | number | boolean> {
   }
 
   // Secret file wins over YAML and process.env at the same flattened name.
+  // Guard empties the same way the process.env fold does: a blanked override in
+  // the secret file (`GASLESS_TX_GAS_LIMIT=`) must not shadow the YAML default.
   for (const [k, v] of Object.entries(secrets)) {
-    expanded[k] = v;
+    if (v !== '') expanded[k] = v;
+  }
+
+  // Legacy key aliases: a renamed knob still set in an existing secret file must
+  // keep working, or the rename silently reverts a safety flag. The new name's
+  // YAML default would otherwise shadow the legacy value, so an explicitly-set
+  // legacy key wins over the YAML default (but not over an explicit new key).
+  for (const [legacy, current] of Object.entries(LEGACY_KEY_ALIASES)) {
+    const legacyValue = secrets[legacy] ?? process.env[legacy];
+    if (legacyValue === undefined || legacyValue === '') continue;
+    const currentExplicit = (secrets[current] ?? process.env[current]) !== undefined;
+    if (!currentExplicit) expanded[current] = legacyValue;
+    logger.warn(
+      `${legacy} is a legacy name for ${current}; ${currentExplicit ? `${current} is set and wins` : `honoring ${legacy}=${legacyValue}`}. Rename it in the secret file.`,
+    );
+  }
+
+  // Treat any key that resolved to '' as ABSENT. An empty value reaches a
+  // consumer's `Number()`/`BigInt()` as 0/0n rather than firing its `?? default`,
+  // silently zeroing money-path knobs (gas limit, slippage, markup, priority
+  // ceiling, prefund cap, HTTP timeout). Empties arrive two ways not covered by
+  // the folds above: an unset `${VAR}` in the YAML (expandVars returns '') and a
+  // YAML key left blank on purpose. Dropping them makes '' and "unset" identical,
+  // which is the intended contract — a knob is either configured or defaulted.
+  for (const k of Object.keys(expanded)) {
+    if (expanded[k] === '') delete expanded[k];
   }
 
   // Mirror the resolved config back onto process.env so services that still read

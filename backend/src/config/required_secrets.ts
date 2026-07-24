@@ -1,11 +1,14 @@
 import { loadConfig } from './yaml_reader';
 
 /**
- * Values that must be supplied explicitly in production. Each one has a
+ * Values that must be supplied explicitly in production. Each has a
  * developer-friendly fallback that is wrong-but-running in production:
- * the DB password falls back to the dev literal `gasless`, and an unset
- * treasury makes ChainConfigService fall back to the operator's own address,
- * so user fees would accumulate in the operator wallet instead of the treasury.
+ *   - DATABASE_POSTGRES_PASSWORD falls back to the dev literal `gasless`.
+ *   - GASLESS_SOLANA_TREASURY_ADDRESS: an unset Solana treasury makes the batch
+ *     builder / fee estimator fall back to the operator's OWN pubkey, so user
+ *     fees accrue in the operator wallet. (The EVM treasury has no fallback — an
+ *     unset value is '' and every accepted-fee request throws instead — but it
+ *     is still required for the service to function.)
  */
 const REQUIRED_IN_PRODUCTION = [
   'DATABASE_POSTGRES_PASSWORD',
@@ -13,12 +16,11 @@ const REQUIRED_IN_PRODUCTION = [
   'GASLESS_SOLANA_TREASURY_ADDRESS',
 ];
 
-const OPERATOR_SEED_KEYS = [
-  'OPERATOR_MNEMONIC',
-  'OPERATOR_PRIVATE_KEY',
-  'SOLANA_OPERATOR_MNEMONIC',
-  'SOLANA_OPERATOR_PRIVATE_KEY',
-];
+// The EVM relayer resolves its operator at boot from OPERATOR_MNEMONIC or
+// OPERATOR_PRIVATE_KEY specifically (EvmExecutorService.onModuleInit), and
+// RelayerModule is always imported. So an EVM-capable seed is separately
+// required — a Solana-only seed would pass a generic check and then crash DI.
+const EVM_SEED_KEYS = ['OPERATOR_MNEMONIC', 'OPERATOR_PRIVATE_KEY'];
 
 export function assertRequiredSecrets(nodeEnv: string | undefined = process.env.NODE_ENV): void {
   if ((nodeEnv ?? '').toLowerCase() !== 'production') return;
@@ -27,8 +29,8 @@ export function assertRequiredSecrets(nodeEnv: string | undefined = process.env.
   const value = (key: string): string => String(config[key] ?? '').trim();
   const missing = REQUIRED_IN_PRODUCTION.filter((key) => !value(key));
 
-  if (!OPERATOR_SEED_KEYS.some((key) => value(key))) {
-    missing.push(`one of ${OPERATOR_SEED_KEYS.join(' / ')}`);
+  if (!EVM_SEED_KEYS.some((key) => value(key))) {
+    missing.push(`one of ${EVM_SEED_KEYS.join(' / ')}`);
   }
 
   if (missing.length > 0) {
