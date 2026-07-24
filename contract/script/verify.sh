@@ -18,6 +18,15 @@ backend_dir="$(cd "$contract_dir/../backend" && pwd)"
 config_yaml="$backend_dir/config.yaml"
 deployed_json="$chains_dir/deployed.json"
 
+if ! command -v node >/dev/null 2>&1; then
+  echo "node required; the chain-name lookup below parses config.yaml with js-yaml" >&2
+  exit 1
+fi
+if ! (cd "$backend_dir" && node -e 'require("js-yaml")' >/dev/null 2>&1); then
+  echo "js-yaml not found; run: (cd $backend_dir && npm install)" >&2
+  exit 1
+fi
+
 # chainId -> name map from the config.yaml registry (single source of truth).
 chain_names_json="$(cd "$backend_dir" && node -e '
 const { load } = require("js-yaml");

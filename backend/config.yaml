@@ -1,5 +1,4 @@
-# TODO: Check if all the configs are included in this file
-# Gasless relayer sample config. Copy to ./config.yaml and adjust per env.
+# Gasless relayer config. Copy to ./config.yaml and adjust per env.
 #
 # How config resolves (see src/config/yaml_reader.ts):
 #   - This YAML is flattened to UPPER_SNAKE_CASE keys (e.g. database.postgres.host
@@ -47,8 +46,18 @@ DEPLOYED_JSON_PATH: '${DEPLOYED_JSON_PATH}'
 # --- Chain registry (public config; formerly chains/chains.json) ---
 # rpcUrls: first entry is the keyed provider endpoint (`${ANKR_API_KEY}` is the
 # only secret, interpolated from the secret file); the rest are keyless public
-# fallbacks. acceptedFeeTokens/mainFeeToken drive the EVM fee path; `tokens`
-# lists SPL fee tokens for Solana.
+# fallbacks. A keyed URL whose variable is unset is dropped with a boot warning.
+# acceptedFeeTokens/mainFeeToken drive the EVM fee path; `tokens` lists SPL fee
+# tokens for Solana.
+#
+# EXCEPTION to the "quote every scalar" rule at the top of this file: `chainId`
+# and `nativeDecimals` must stay UNQUOTED. ChainConfigService coerces them with
+# Number() and rejects non-integers at boot, so a quoted value is caught rather
+# than silently keying the registry by a string.
+#
+# Deploy-time override without rebuilding the image: set `CHAINS_<chainId>_RPC_URLS`
+# (comma-separated) in the secret file or process.env, e.g.
+#   CHAINS_56_RPC_URLS=https://my-paid-bsc,https://backup-bsc
 chains:
   - chainId: 56
     name: 'bsc'
@@ -153,8 +162,13 @@ gasless:
   # Treasury addresses that receive the user's fee. Provided via the secret store.
   treasuryAddress: '${GASLESS_TREASURY_ADDRESS}'
   solanaTreasuryAddress: '${GASLESS_SOLANA_TREASURY_ADDRESS}'
-  # Solana-only legacy fee-token whitelist (comma-separated). Empty = unset.
-  acceptedFeeTokens: ''
+  # Solana-only legacy fee-token whitelist, `<chainId>:<SYMBOL_or_address>`
+  # comma-separated. This is a deliberate whitelist, NOT a default: leaving it
+  # empty makes ChainConfigService.parseSolanaChain fall back to "accept every
+  # SPL in the chain's `tokens` map", which silently widens acceptance to tokens
+  # (e.g. SPL USDT) this list intentionally excludes. EVM chains ignore it and
+  # use their own `acceptedFeeTokens` above.
+  acceptedFeeTokens: '56:USDT,8453:USDT,42161:USDT,-100:USDC,-100:xTSLA,-100:xNVDA,-100:xAAPL'
   baseFeeMarkupPercent: '15'
   defaultGasUnits: '1500000'
   rangoSlippage: '5.0'
@@ -162,6 +176,28 @@ gasless:
   txGasLimit: '2000000'
   maxPrefundLamports: '50000000'
   tokenMetadataTtlSeconds: '86400'
+  # Fee sizing mode: `bps` (spread over network cost via baseFeeMarkupPercent)
+  # or `fixed` (price the network cost via the feed and add feeProfit per token).
+  feeMode: 'bps'
+  # fixed-mode per-token profit, human units: <chainId>:<TOKEN_or_address>:<amount>
+  feeProfit: ''
+  # Refuse to quote when the fee is worth less than the ceiling network cost.
+  # Requires the price feed; off by default to preserve bps-mode behaviour.
+  noLossCheck: 'false'
+  # Headroom above simulated network cost the no-loss guard covers, in bps.
+  # In bps mode keep baseFeeMarkupPercent >= this or the guard rejects most quotes.
+  priorityHeadroomBps: '3000'
+  # Echo `causes` (program logs, aggregator detail) in HTTP errors. Off — it is a
+  # fingerprinting surface; the full detail always reaches the server logs.
+  exposeErrorCauses: 'false'
+  # How the Solana user-SOL prefund is sized: `simulate` (exact SOL the user
+  # consumes, floored at the scan) or `scan` (static ATA-create scan; the
+  # automatic fallback when simulation is unavailable, not an operating mode).
+  prefundSizing: 'simulate'
+  # TokenPriceRefreshJob cron, and the age past which the price blob is treated
+  # as unusable so a wedged refresh cannot silently under-price.
+  priceRefreshCron: '*/5 * * * *'
+  priceMaxAgeSeconds: '900'
 
 # --- Relayer broadcast loop ---
 relayer:
@@ -193,7 +229,10 @@ solana:
   defaultPriorityMicrolamportsPerCu: '500000'
   maxPriorityMicrolamportsPerCu: '2000000'
   dynamicPriorityEnabled: 'true'
-  dynamicPriorityPercentile: '75'
+  # Bumped 75 -> 90 on 2026-07-09 after G1 mempool-drop failures under real
+  # congestion: p75 (~2900 lamports at the time) loses ~25% of the auction.
+  # Restored here after the RIN-135 config move silently reverted it to 75.
+  dynamicPriorityPercentile: '90'
   minFeeLamports: '666666'
   # Broadcast mode: `single` (classic) or `bundled` (Jito atomic bundle).
   # Declared so a deploy-time SOLANA_BUNDLED_MODE_ENABLED=false (process.env or

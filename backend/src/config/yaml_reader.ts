@@ -17,16 +17,26 @@
  * standalone TypeORM CLI (data-source.ts) calls `loadConfig()` directly since
  * it runs outside Nest's DI container.
  */
+import { Logger } from '@nestjs/common';
 import { existsSync, readFileSync } from 'fs';
 import { load as parseYaml } from 'js-yaml';
 import { resolve } from 'path';
 
 import { readSecretConfig } from './secret_reader';
 
+const logger = new Logger('ConfigLoader');
+
 let configPath = './config.yaml';
 let merged: Record<string, string | number | boolean> | null = null;
 
 const VAR_RE = /\$\{([A-Z0-9_]+)\}/g;
+
+const SECRET_KEY_PATTERNS = [/_MNEMONIC$/, /_PRIVATE_KEY$/, /_PASSWORD$/, /_API_KEY$/, /_SECRET$/];
+
+/** Keys never mirrored onto process.env (see the mirror loop in loadConfig). */
+export function isSecretKey(key: string): boolean {
+  return SECRET_KEY_PATTERNS.some((re) => re.test(key));
+}
 
 function camelToSnakeUpper(key: string): string {
   return key
@@ -46,7 +56,9 @@ function flatten(
     if (val !== null && typeof val === 'object' && !Array.isArray(val)) {
       flatten(val as Record<string, unknown>, full, out);
     } else {
-      out[full] = val;
+      // A valueless YAML key (`foo:`) parses as null; keep it an empty string so
+      // the mirror below can't write the literal 'null' into process.env.
+      out[full] = val === null ? '' : val;
     }
   }
   return out;
@@ -90,12 +102,13 @@ function expandDeep(input: unknown, secrets: Record<string, string>): unknown {
  * endpoint like `.../bsc/${ANKR_API_KEY}` when the key isn't configured, so the
  * keyless public fallbacks in the list are used instead of a broken URL.
  */
-function expandUrlOrNull(url: string, secrets: Record<string, string>): string | null {
+function expandUrlOrNull(url: string, secrets: Record<string, string>, missing?: string[]): string | null {
   let unresolved = false;
   const out = url.replace(VAR_RE, (_m, varName: string) => {
     const val = secrets[varName] ?? process.env[varName];
     if (val === undefined || val === '') {
       unresolved = true;
+      missing?.push(varName);
       return '';
     }
     return val;
@@ -115,16 +128,81 @@ export function loadChainsConfig(): unknown[] {
   const chains = yamlMap['chains'];
   if (!Array.isArray(chains)) return [];
   const secrets = readSecretConfig();
+  warnOnLegacyRpcOverrides(secrets, chains as Record<string, unknown>[]);
   return chains.map((chain) => {
+    const source = chain as Record<string, unknown>;
     const expanded = expandDeep(chain, secrets) as Record<string, unknown>;
-    const rawRpc = (chain as Record<string, unknown>)?.rpcUrls;
+    const label = String(source?.name ?? source?.chainId ?? '?');
+
+    const override = rpcOverrideFor(source, secrets);
+    if (override) {
+      logger.log(`chain ${label}: rpcUrls overridden by ${override.key} (${override.urls.length} endpoint(s))`);
+      expanded.rpcUrls = override.urls;
+      return expanded;
+    }
+
+    const rawRpc = source?.rpcUrls;
     if (Array.isArray(rawRpc)) {
-      expanded.rpcUrls = rawRpc
-        .map((u) => (typeof u === 'string' ? expandUrlOrNull(u, secrets) : null))
-        .filter((u): u is string => u !== null);
+      const kept: string[] = [];
+      for (const u of rawRpc) {
+        if (typeof u !== 'string') continue;
+        const missing: string[] = [];
+        const resolved = expandUrlOrNull(u, secrets, missing);
+        if (resolved === null) {
+          logger.warn(
+            `chain ${label}: dropped RPC endpoint ${u} — unset ${[...new Set(missing)].join(', ')}. ` +
+              `Falling back to the remaining (keyless, rate-limited) endpoints.`,
+          );
+          continue;
+        }
+        kept.push(resolved);
+      }
+      if (kept.length === 1) {
+        logger.warn(`chain ${label}: only one RPC endpoint resolved — no fallback if it rate-limits or fails.`);
+      }
+      expanded.rpcUrls = kept;
     }
     return expanded;
   });
+}
+
+function rpcOverrideKeys(chain: Record<string, unknown>): string[] {
+  const keys: string[] = [];
+  const name = typeof chain?.name === 'string' ? chain.name : '';
+  if (name) keys.push(`CHAINS_${camelToSnakeUpper(name.replace(/-/g, '_'))}_RPC_URLS`);
+  if (chain?.chainId !== undefined) keys.push(`CHAINS_${String(chain.chainId)}_RPC_URLS`);
+  return keys;
+}
+
+function rpcOverrideFor(
+  chain: Record<string, unknown>,
+  secrets: Record<string, string>,
+): { key: string; urls: string[] } | null {
+  for (const key of rpcOverrideKeys(chain)) {
+    const raw = (secrets[key] ?? process.env[key] ?? '').trim();
+    if (!raw) continue;
+    const urls = raw.split(',').map((s) => s.trim()).filter((s) => s.length > 0);
+    if (urls.length > 0) return { key, urls };
+  }
+  return null;
+}
+
+/**
+ * `<CHAIN>_RPC_URLS` was the pre-RIN-135 override. It is no longer read, so a
+ * deployment still carrying paid endpoints there would silently move to the
+ * YAML list on its first restart. Name the key and the replacement instead.
+ */
+function warnOnLegacyRpcOverrides(secrets: Record<string, string>, chains: Record<string, unknown>[]): void {
+  const supported = new Set(chains.flatMap((c) => rpcOverrideKeys(c)));
+  const seen = new Set<string>();
+  for (const key of [...Object.keys(secrets), ...Object.keys(process.env)]) {
+    if (!key.endsWith('_RPC_URLS') || supported.has(key) || seen.has(key)) continue;
+    seen.add(key);
+    logger.warn(
+      `${key} is set but no longer read — RPC endpoints now live in config.yaml under chains[].rpcUrls. ` +
+        `To override at deploy time use ${[...supported].join(' / ') || 'CHAINS_<NAME>_RPC_URLS'}.`,
+    );
+  }
 }
 
 /** Stage the path for the config file. Must be called before app.module is imported. */
@@ -198,10 +276,16 @@ export function loadConfig(): Record<string, string | number | boolean> {
   }
 
   // Mirror the resolved config back onto process.env so services that still read
-  // process.env.* directly (pricing/fee_policy, prefund sizing, price refresh,
-  // exception filter) see the SAME values as ConfigService consumers. Runs during
-  // ConfigModule init, before any service constructor reads process.env.
+  // process.env.* directly see the SAME values as ConfigService consumers. Runs
+  // during ConfigModule init, before any service constructor reads process.env.
+  //
+  // Secrets are excluded: process.env is readable via /proc/<pid>/environ, is
+  // inherited by every spawned child, and is serialized by crash handlers —
+  // the same exposure docs/secrets-and-config-convention.md forbids in
+  // docker-compose `environment:`. Nothing in src/ reads a secret this way;
+  // secrets are resolved through ConfigService / readSecretConfig().
   for (const [k, v] of Object.entries(expanded)) {
+    if (isSecretKey(k)) continue;
     process.env[k] = String(v);
   }
 

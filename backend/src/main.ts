@@ -4,8 +4,10 @@ import 'reflect-metadata';
 // yaml+secret map (src/config) is the single source of truth — this replaces
 // the old dotenv/process.env reads.
 import { parseConfigPath, yamlReader } from './config';
+import { assertRequiredSecrets } from './config/required_secrets';
 
 yamlReader(parseConfigPath());
+assertRequiredSecrets();
 
 import { Logger, ValidationPipe } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';

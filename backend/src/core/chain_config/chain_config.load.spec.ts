@@ -64,4 +64,40 @@ describe('ChainConfigService.load()', () => {
     svc.load();
     expect(svc.get(56).delegateContractAddress).toBeNull();
   });
+
+  // Untouched, a quoted chainId keys the registry by the string '56', so every
+  // get(56) misses and the chain answers 20001 for all traffic while boot looks
+  // healthy. Coercion makes the documented "quote every scalar" style safe here.
+  it('coerces a quoted chainId so the registry stays keyed numerically', () => {
+    mockedLoadChains.mockReturnValue([evmChain({ chainId: '56' })]);
+    const svc = new ChainConfigService(config({ DEPLOYED_JSON_PATH: '/nonexistent.json', GASLESS_TREASURY_ADDRESS: '0xtreasury' }));
+    svc.load();
+    expect(svc.get(56).chainId).toBe(56);
+    expect(svc.getOrNull(56)).not.toBeNull();
+  });
+
+  it('coerces a quoted nativeDecimals to a number', () => {
+    mockedLoadChains.mockReturnValue([evmChain({ nativeDecimals: '18' })]);
+    const svc = new ChainConfigService(config({ DEPLOYED_JSON_PATH: '/nonexistent.json', GASLESS_TREASURY_ADDRESS: '0xtreasury' }));
+    svc.load();
+    expect(svc.get(56).nativeDecimals).toBe(18);
+  });
+
+  it('throws on a chainId that is not a number at all', () => {
+    mockedLoadChains.mockReturnValue([evmChain({ chainId: 'bsc-mainnet' })]);
+    const svc = new ChainConfigService(config({ DEPLOYED_JSON_PATH: '/nonexistent.json', GASLESS_TREASURY_ADDRESS: '0xtreasury' }));
+    expect(() => svc.load()).toThrow(/chainId must be an unquoted integer/);
+  });
+
+  it('throws on a negative nativeDecimals', () => {
+    mockedLoadChains.mockReturnValue([evmChain({ nativeDecimals: -1 })]);
+    const svc = new ChainConfigService(config({ DEPLOYED_JSON_PATH: '/nonexistent.json', GASLESS_TREASURY_ADDRESS: '0xtreasury' }));
+    expect(() => svc.load()).toThrow(/nativeDecimals must be an unquoted non-negative integer/);
+  });
+
+  it('rejects two chains claiming the same chainId', () => {
+    mockedLoadChains.mockReturnValue([evmChain(), evmChain({ name: 'bsc-copy' })]);
+    const svc = new ChainConfigService(config({ DEPLOYED_JSON_PATH: '/nonexistent.json', GASLESS_TREASURY_ADDRESS: '0xtreasury' }));
+    expect(() => svc.load()).toThrow(/duplicate chainId 56/);
+  });
 });

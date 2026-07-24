@@ -40,10 +40,15 @@ import { RelayerSolanaModule } from './modules/relayer-solana/relayer-solana.mod
     TypeOrmModule.forRootAsync({
       useFactory: () => buildDataSourceOptions(),
       dataSourceFactory: async (options) => {
-        // Honour the options Nest resolved rather than whatever the singleton
+        // Apply the options Nest resolved rather than whatever the singleton
         // captured when this module was first imported. Identical in production
         // (both come from buildDataSourceOptions); the difference matters when
         // the config is swapped after import, as the e2e harness does.
+        //
+        // Only on first initialize: AppDataSource is a module-level singleton
+        // holding one connection pool, so a second boot in the same process
+        // reuses the first boot's connection and cannot be repointed. Jest gives
+        // each test file its own module registry, so each gets a fresh one.
         if (!AppDataSource.isInitialized) {
           if (options) AppDataSource.setOptions(options);
           await AppDataSource.initialize();

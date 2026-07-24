@@ -36,6 +36,14 @@ if ! command -v forge >/dev/null 2>&1; then
   echo "forge required; install foundry from https://book.getfoundry.sh/" >&2
   exit 1
 fi
+if ! command -v node >/dev/null 2>&1; then
+  echo "node required; the chains bridge below parses config.yaml with js-yaml" >&2
+  exit 1
+fi
+if ! (cd "$backend_dir" && node -e 'require("js-yaml")' >/dev/null 2>&1); then
+  echo "js-yaml not found; run: (cd $backend_dir && npm install)" >&2
+  exit 1
+fi
 
 # Load .env if present
 if [[ -f "$contract_dir/.env" ]]; then
@@ -63,7 +71,7 @@ chains_yaml_json="$(cd "$backend_dir" && node -e '
 const { load } = require("js-yaml");
 const fs = require("fs");
 const cfg = load(fs.readFileSync(process.argv[1], "utf8")) || {};
-const chains = (cfg.chains || []).map((c) => ({
+const chains = (cfg.chains || []).filter((c) => c.networkType !== "SOLANA").map((c) => ({
   name: c.name,
   chainId: c.chainId,
   rpcUrls: (c.rpcUrls || []).map((u) => {

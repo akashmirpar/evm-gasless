@@ -738,7 +738,7 @@ The old per-EVM-chain `tokens: {SYMBOL: {address, decimals}}` map is gone. Decim
 
 Both signatures are required. The `nonce` for the authorization is the user's current EOA tx count from the chain — fetch it via `eth_getTransactionCount` immediately before signing to avoid races.
 
-The `GaslessDelegate` contract addresses per chain are recorded in the backend's `deployed.json` (and in `chains.json`); read them from there.
+The `GaslessDelegate` contract addresses per chain are recorded in the backend's `deployed.json` (chain metadata lives in `backend/config.yaml`); read them from there.
 
 ---
 

@@ -1,6 +1,6 @@
 # Architecture
 
-The system supports two transaction families, with structurally similar API shape but very different underlying primitives. Any EIP-7702-capable EVM chain can be added by deploying `GaslessDelegate` and adding a `chains.json` entry — BSC, Base, and Arbitrum are configured today:
+The system supports two transaction families, with structurally similar API shape but very different underlying primitives. Any EIP-7702-capable EVM chain can be added by deploying `GaslessDelegate` and adding a `chains:` entry to `backend/config.yaml` — BSC, Base, and Arbitrum are configured today:
 
 - **EVM** (any EIP-7702 chain; BSC, Base, Arbitrum today) — uses EIP-7702 to delegate the user's EOA to a `GaslessDelegate` Solidity contract; the user signs an EIP-712 batch; the operator submits a type-4 transaction.
 - **Solana** — uses Solana's native multi-sig: the operator is the transaction's fee payer (covers SOL); the user co-signs as authority over their own token accounts. No delegation contract.

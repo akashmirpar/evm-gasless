@@ -11,7 +11,7 @@ import {
   parseUnits,
 } from 'ethers';
 import { randomUUID } from 'crypto';
-import { existsSync, mkdtempSync, readFileSync, writeFileSync } from 'fs';
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'fs';
 import { tmpdir } from 'os';
 import { join, resolve } from 'path';
 import { DataSource } from 'typeorm';
@@ -174,10 +174,30 @@ function writeE2ESecretFile(overrides: Record<string, string>): string {
       })
     : [];
   const merged = [...inherited, ...Object.entries(overrides).map(([k, v]) => `${k}=${v}`)].join('\n');
-  const file = join(mkdtempSync(join(tmpdir(), 'gasless-e2e-')), 'secrets.env');
-  writeFileSync(file, `${merged}\n`);
+  const dir = mkdtempSync(join(tmpdir(), 'gasless-e2e-'));
+  const file = join(dir, 'secrets.env');
+  // This copy carries the developer's real secrets (both mnemonics). Keep it
+  // owner-read-only and remove it on exit rather than leaving one plaintext
+  // copy per test run lying around in /tmp.
+  writeFileSync(file, `${merged}\n`, { mode: 0o600 });
+  e2eSecretDirs.push(dir);
   return file;
 }
+
+const e2eSecretDirs: string[] = [];
+
+function removeE2ESecretFiles(): void {
+  while (e2eSecretDirs.length > 0) {
+    const dir = e2eSecretDirs.pop()!;
+    try {
+      rmSync(dir, { recursive: true, force: true });
+    } catch {
+      // best effort — the process is exiting
+    }
+  }
+}
+
+process.on('exit', removeE2ESecretFiles);
 
 export async function bootBackend(extraEnv: Record<string, string>): Promise<{ app: INestApplication; http: supertest.Agent; postgres: StartedTestContainer; redis: StartedTestContainer }> {
   const postgres = await new GenericContainer('postgres:16-alpine')
