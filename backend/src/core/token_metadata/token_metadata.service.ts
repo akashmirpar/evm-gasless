@@ -1,5 +1,6 @@
 import { CACHE_MANAGER } from '@nestjs/cache-manager';
 import { Inject, Injectable, Logger } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import type { Cache } from 'cache-manager';
 import { Contract } from 'ethers';
 
@@ -28,8 +29,9 @@ export class TokenMetadataService {
     private readonly chainConfig: ChainConfigService,
     private readonly rpc: RpcService,
     @Inject(CACHE_MANAGER) private readonly cache: Cache,
+    private readonly config: ConfigService,
   ) {
-    this.ttlMs = Number(process.env.GASLESS_TOKEN_METADATA_TTL_SECONDS ?? '86400') * 1_000;
+    this.ttlMs = Number(this.config.get<string>('GASLESS_TOKEN_METADATA_TTL_SECONDS') ?? '86400') * 1_000;
   }
 
   async getDecimals(chainId: number, address: string): Promise<number> {

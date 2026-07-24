@@ -17,7 +17,7 @@ const ERC20_BALANCE_OF = ['function balanceOf(address) view returns (uint256)'];
 const ERC20_IFACE = new Interface(['function transfer(address to, uint256 amount)']);
 const USER_OP_RECIPIENT = '0x3d2f7550C63F3b6E6A9a24D0a226f6ae0c48749F';
 
-const liveEnabled = !!(process.env.E2E_USER_PRIVATE_KEY && (process.env.E2E_BACKEND_URL || process.env.E2E_LIVE === '1'));
+const liveEnabled = !!((process.env.E2E_USER_PRIVATE_KEY || process.env.TEST_MNEMONIC) && (process.env.E2E_BACKEND_URL || process.env.E2E_LIVE === '1'));
 const describeIfLive = liveEnabled ? describe : describe.skip;
 
 async function tokenDecimals(rpcUrl: string, token: string): Promise<number> {

@@ -1,6 +1,6 @@
 # Architecture
 
-The system supports two transaction families, with structurally similar API shape but very different underlying primitives. Any EIP-7702-capable EVM chain can be added by deploying `GaslessDelegate` and adding a `chains.json` entry — BSC, Base, and Arbitrum are configured today:
+The system supports two transaction families, with structurally similar API shape but very different underlying primitives. Any EIP-7702-capable EVM chain can be added by deploying `GaslessDelegate` and adding a `chains:` entry to `backend/config.yaml` — BSC, Base, and Arbitrum are configured today:
 
 - **EVM** (any EIP-7702 chain; BSC, Base, Arbitrum today) — uses EIP-7702 to delegate the user's EOA to a `GaslessDelegate` Solidity contract; the user signs an EIP-712 batch; the operator submits a type-4 transaction.
 - **Solana** — uses Solana's native multi-sig: the operator is the transaction's fee payer (covers SOL); the user co-signs as authority over their own token accounts. No delegation contract.
@@ -36,7 +36,7 @@ A user wants to execute arbitrary EVM operations from their own EOA but doesn't 
 |-------|----------|--------------|
 | Solidity contract (`GaslessDelegate`) | [`gasless/contract/`](../contract/) | EIP-7702 delegate target. Verifies EIP-712 batch signatures bound to the EOA itself. Splits each batch into must-succeed zone + atomic group. |
 | Backend service | [`gasless/backend/`](../backend/) | HTTP API, fee estimation, Rango swap construction, Redis-stashed prepared batches, Postgres-tracked submitted transactions, relayer poller. |
-| Shared chain config | [`gasless/chains/`](../chains/) | `chains.json` (per-chain RPC defaults, tokens, names) and `deployed.json` (per-chain delegate contract address — written by the deploy script). |
+| Shared chain config | [`gasless/chains/`](../chains/) | the `chains:` section of `backend/config.yaml` (per-chain RPC endpoints, tokens, names) and `chains/deployed.json` (per-chain delegate contract address — written by the deploy script). |
 
 ## The two zones (and why)
 
@@ -56,7 +56,7 @@ The user signs whichever shape applies. The signature commits to every byte of e
 
 ## Submission is permissionless
 
-`executeBatch` has **no admin gate**. Anyone holding the user's signed batch can submit it and pay gas. They can't profit by redirecting the fee, because the user's signature locks the treasury recipient. The operator wallet configured in the backend (`OPERATOR_PRIVATE_KEY`) is just whoever pays gas — the contract has no notion of them.
+`executeBatch` has **no admin gate**. Anyone holding the user's signed batch can submit it and pay gas. They can't profit by redirecting the fee, because the user's signature locks the treasury recipient. The operator wallet configured in the backend (`OPERATOR_MNEMONIC`) is just whoever pays gas — the contract has no notion of them.
 
 This matters for integration: if a third party wants to provide a redundant submitter (failover relayer, MEV-resistant inclusion service, etc.), they can do it without any contract change. They just need the signed batch.
 
@@ -145,7 +145,7 @@ Solana uses the same `RangoClient.quote()` to convert SOL → user's fee token. 
 2. `gasUnits × priorityFee + baseFee` = SOL cost in lamports, plus the markup.
 3. `rango.quote({ from: SOL, to: feeToken, amount: lamports })` → fee in the user's token's smallest unit.
 
-Falls back to a hardcoded `SOLANA_SOL_USD_PRICE × SOLANA_FEE_TOKEN_USD_PRICE` cross only if Rango is unreachable.
+If Rango is unreachable the request fails closed (no hardcoded USD-price fallback — that would risk silently under-quoting the fee).
 
 ### Persistence
 

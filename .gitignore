@@ -28,7 +28,8 @@ backend/.env
 backend/.env.*
 !backend/.env.example
 backend/*.tsbuildinfo
-
+backend/*.log
+backend/log*.txt
 # ── contract (Foundry) ──────────────────────────────────
 contract/cache/
 contract/out/
@@ -42,3 +43,8 @@ contract/lib/
 
 # Claude
 .claude/settings.local.json
+
+# code-review generated outputs (local tooling state)
+code-review/issue_*
+code-review/**/diff_*.diff
+code-review/issue_*.diff

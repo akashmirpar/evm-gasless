@@ -12,7 +12,7 @@ import { RangoClient } from 'src/modules/rango/rango.client';
 import { RpcService } from 'src/core/rpc/rpc.service';
 import { TokenMetadataService } from 'src/core/token_metadata/token_metadata.service';
 
-// Arbitrum mainFeeToken (accepted) from chains.json.
+// Arbitrum mainFeeToken (accepted) from the config.yaml chain registry.
 const ARB = 42161;
 const USDT = '0xfd086bc7cd5c481dcc9c85ebe478a1c0b69fcbb9';
 const USER = '0x1111111111111111111111111111111111111111';

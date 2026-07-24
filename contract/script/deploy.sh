@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Deploy GaslessDelegate to each chain listed in gasless/chains/chains.json.
+# Deploy GaslessDelegate to each chain in the config.yaml `chains:` registry.
 #
 # Required env (typically loaded from gasless/contract/.env):
 #   OPERATOR_MNEMONIC          BIP-39 mnemonic for the deployer wallet
@@ -7,11 +7,8 @@
 # Either of the above OR:
 #   OPERATOR_PRIVATE_KEY       0x-prefixed 32-byte hex private key
 #
-# Per-chain RPC overrides (comma-separated lists). First entry is used:
-#   BSC_RPC_URLS
-#   BASE_RPC_URLS
-#   ARBITRUM_RPC_URLS
-# If unset, the first entry in chains.json -> defaultRpcs is used.
+# RPC endpoints come from each chain's `rpcUrls` in config.yaml (first usable
+# entry is used); the provider key `${ANKR_API_KEY}` is expanded from the env.
 #
 # Optional filter:
 #   CHAINS="bsc base"          (space-separated short names; deploys to all if unset)
@@ -23,11 +20,12 @@ set -euo pipefail
 here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 contract_dir="$(cd "$here/.." && pwd)"
 chains_dir="$(cd "$contract_dir/../chains" && pwd)"
-chains_json="$chains_dir/chains.json"
+backend_dir="$(cd "$contract_dir/../backend" && pwd)"
+config_yaml="$backend_dir/config.yaml"
 deployed_json="$chains_dir/deployed.json"
 
-if [[ ! -f "$chains_json" ]]; then
-  echo "missing $chains_json" >&2
+if [[ ! -f "$config_yaml" ]]; then
+  echo "missing $config_yaml" >&2
   exit 1
 fi
 if ! command -v jq >/dev/null 2>&1; then
@@ -36,6 +34,14 @@ if ! command -v jq >/dev/null 2>&1; then
 fi
 if ! command -v forge >/dev/null 2>&1; then
   echo "forge required; install foundry from https://book.getfoundry.sh/" >&2
+  exit 1
+fi
+if ! command -v node >/dev/null 2>&1; then
+  echo "node required; the chains bridge below parses config.yaml with js-yaml" >&2
+  exit 1
+fi
+if ! (cd "$backend_dir" && node -e 'require("js-yaml")' >/dev/null 2>&1); then
+  echo "js-yaml not found; run: (cd $backend_dir && npm install)" >&2
   exit 1
 fi
 
@@ -58,12 +64,34 @@ fi
 
 filter_names="${CHAINS:-}"
 
-mapfile -t chain_rows < <(jq -c '.chains[]' "$chains_json")
+# Read the chain registry from config.yaml (single source of truth). The node
+# bridge reuses backend/node_modules js-yaml and expands `${VAR}` (e.g. the RPC
+# provider key) from the environment, dropping any URL whose key is unset.
+chains_yaml_json="$(cd "$backend_dir" && node -e '
+const { load } = require("js-yaml");
+const fs = require("fs");
+const cfg = load(fs.readFileSync(process.argv[1], "utf8")) || {};
+const chains = (cfg.chains || []).filter((c) => c.networkType !== "SOLANA").map((c) => ({
+  name: c.name,
+  chainId: c.chainId,
+  rpcUrls: (c.rpcUrls || []).map((u) => {
+    let ok = true;
+    const r = String(u).replace(/\$\{([A-Z0-9_]+)\}/g, (_, v) => {
+      const val = process.env[v];
+      if (!val) { ok = false; return ""; }
+      return val;
+    });
+    return ok ? r : null;
+  }).filter(Boolean),
+}));
+process.stdout.write(JSON.stringify({ chains }));
+' "$config_yaml")"
+
+mapfile -t chain_rows < <(echo "$chains_yaml_json" | jq -c '.chains[]')
 
 for row in "${chain_rows[@]}"; do
   name="$(echo "$row" | jq -r '.name')"
   chain_id="$(echo "$row" | jq -r '.chainId')"
-  env_rpc_var="$(echo "$row" | jq -r '.envRpcVar')"
 
   if [[ -n "$filter_names" ]]; then
     found=0
@@ -75,11 +103,10 @@ for row in "${chain_rows[@]}"; do
     if [[ "$found" -eq 0 ]]; then continue; fi
   fi
 
-  override="${!env_rpc_var:-}"
-  if [[ -n "$override" ]]; then
-    rpc_url="$(echo "$override" | cut -d, -f1)"
-  else
-    rpc_url="$(echo "$row" | jq -r '.defaultRpcs[0]')"
+  rpc_url="$(echo "$row" | jq -r '.rpcUrls[0] // empty')"
+  if [[ -z "$rpc_url" ]]; then
+    echo "no usable rpcUrls for $name (chain $chain_id) — set ANKR_API_KEY or add a keyless RPC in config.yaml" >&2
+    exit 1
   fi
 
   echo "============================================================"

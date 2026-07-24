@@ -1,5 +1,6 @@
 import { CACHE_MANAGER } from '@nestjs/cache-manager';
 import { Inject, Injectable } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import type { Cache } from 'cache-manager';
 
 import { REDIS_KEY_PREFIX } from '../../../common/redis';
@@ -22,8 +23,8 @@ export interface CachedRequest {
 export class EvmCacheService {
   private readonly ttlMs: number;
 
-  constructor(@Inject(CACHE_MANAGER) private readonly cache: Cache) {
-    this.ttlMs = Number(process.env.GASLESS_CREATE_TTL_SECONDS ?? '90') * 1_000;
+  constructor(@Inject(CACHE_MANAGER) private readonly cache: Cache, private readonly config: ConfigService) {
+    this.ttlMs = Number(this.config.get<string>('GASLESS_CREATE_TTL_SECONDS') ?? '90') * 1_000;
   }
 
   async put(requestId: string, data: CachedRequest): Promise<void> {

@@ -1,4 +1,5 @@
 import { Injectable } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { Contract, Signature, verifyTypedData } from 'ethers';
 import { v4 as uuidv4 } from 'uuid';
 
@@ -30,6 +31,7 @@ export class EvmService {
     private readonly cache: EvmCacheService,
     private readonly relayer: RelayerService,
     private readonly rpc: RpcService,
+    private readonly config: ConfigService,
   ) {}
 
   async estimate(dto: EstimateRequestDto): Promise<EstimateResponseDto> {
@@ -62,7 +64,7 @@ export class EvmService {
     const digest = this.batchHash.digest(dto.chainId, dto.userAddress, built.operations, built.atomicGroupStart, batchNonce);
 
     const requestId = uuidv4();
-    const ttlSeconds = Number(process.env.GASLESS_CREATE_TTL_SECONDS ?? '90');
+    const ttlSeconds = Number(this.config.get<string>('GASLESS_CREATE_TTL_SECONDS') ?? '90');
     const expiresAtSeconds = Math.floor(Date.now() / 1000) + ttlSeconds;
 
     await this.cache.put(requestId, {

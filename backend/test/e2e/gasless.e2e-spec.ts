@@ -4,8 +4,10 @@ import { StartedTestContainer } from 'testcontainers';
 import supertest from 'supertest';
 
 import {
+  attachApiKey,
   bootBackend,
   E2EEnv,
+  seedApiKey,
   ensureUserHasNativeAndToken,
   pollUntilTerminal,
   readE2EEnv,
@@ -36,7 +38,7 @@ function makeTransferOp(chainId: number, token: string, recipient: string, human
   };
 }
 
-const supportedFeeTokenAvailable = !!(process.env.E2E_USER_PRIVATE_KEY && process.env.E2E_OPERATOR_PRIVATE_KEY);
+const supportedFeeTokenAvailable = !!((process.env.E2E_USER_PRIVATE_KEY && process.env.E2E_OPERATOR_PRIVATE_KEY) || process.env.TEST_MNEMONIC);
 const describeIfFunded = supportedFeeTokenAvailable ? describe : describe.skip;
 
 describeIfFunded('gasless e2e (real chain)', () => {
@@ -55,7 +57,7 @@ describeIfFunded('gasless e2e (real chain)', () => {
       [`E2E_RPC_URL_${env.chainId}`]: env.rpcUrl,
     });
     app = booted.app;
-    http = booted.http;
+    http = attachApiKey(booted.http, await seedApiKey(booted.app));
     postgres = booted.postgres;
     redis = booted.redis;
   });

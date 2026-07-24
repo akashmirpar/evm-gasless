@@ -1,3 +1,5 @@
+import type { ConfigService } from '@nestjs/config';
+
 import { TokenMetadataService } from './token_metadata.service';
 import { NATIVE_TOKEN_SENTINEL } from '../chain_config/chain_config.service';
 import { NetworkType } from '../../common/utils/network_type';
@@ -46,7 +48,7 @@ function makeService(opts: {
     symbol: async () => 'FAKE',
   }));
 
-  const svc = new TokenMetadataService(chainConfig, rpc, cache as never);
+  const svc = new TokenMetadataService(chainConfig, rpc, cache as never, { get: () => undefined } as unknown as ConfigService);
   return { svc, cache, withFallback };
 }
 

@@ -62,7 +62,7 @@ The gasless backend exposes four HTTP endpoints per family. The shape is paralle
 
 Solana cluster IDs are negative integers because Solana doesn't natively have a numeric chain ID — the negative space is a Pluton-side convention so the same `chainId` parameter can route both families.
 
-Add or change a chain by editing `gasless/chains/chains.json` and (for EVM) `gasless/chains/deployed.json` to record the deployed `GaslessDelegate` address. The backend reads both at boot.
+Add or change a chain by editing the `chains:` section of `backend/config.yaml` (chain id, name, `rpcUrls`, accepted fee tokens, Solana `tokens`). The deployed `GaslessDelegate` address per EVM chain lives in the generated `gasless/chains/deployed.json` (written by `contract/script/deploy.sh`). The backend reads both at boot.
 
 Backend internals (you don't need to know these to integrate, but useful for debugging):
 
@@ -109,6 +109,7 @@ Response:
 
 Same body as `estimate` plus optional fields on Solana:
 
+- `mode?: 'single' | 'bundled'` — broadcast mode (both `estimate` and this endpoint accept it). `single` = classic single tx; `bundled` = Jito atomic bundle for intents that overshoot 1232B. Omit to let the backend choose (defaults to `single`, auto-promoted to `bundled` on wire-size overshoot). **The legacy aliases `g1`/`g2` were removed — a request with `mode: 'g1'` or `'g2'` now returns `400`.**
 - `addressLookupTables?: string[]` — ALT pubkeys from your routing provider's V0 response
 - `userSolPrefundLamports?: string` — absolute override for the SOL prefund (see [Overriding the SOL prefund](#overriding-the-sol-prefund))
 - `userSolPrefundExtraLamports?: string` — additive top-up on the auto-sized prefund
@@ -684,7 +685,7 @@ The EVM fee-token whitelist has been dropped. The backend accepts **any** `feeTo
 
 **1. Direct-accept (fee token is on the chain's `acceptedFeeTokens` list)**
 
-`chains.json` per-chain fields:
+`config.yaml` per-chain fields (under `chains:`):
 - `acceptedFeeTokens: [addr...]` — treated as "already valuable to the operator" and collected via a plain `ERC20.transfer(user → treasury)` op prepended to the batch. No Rango swap.
 - `mainFeeToken: addr` — the single token everything unaccepted gets swapped INTO. **Must** be one of `acceptedFeeTokens` (self-consistency: the swap target is itself acceptable).
 
@@ -721,7 +722,7 @@ Heuristic assumes `quote(A→B)` and `quote(B→A)` are near-reciprocal. Holds f
 - **USDT-style transferFrom blacklists**: if the operator or treasury is blacklisted on a token, swap reverts. Bounded per-token failure; other tokens unaffected.
 - **Rebasing / silent-true `transferFrom` tokens**: same class as blacklists — router swap fails, batch reverts. No fund loss.
 
-**Removed fields from `chains.json` for EVM chains** (upgraders take note):
+**Removed fields from the `chains:` registry for EVM chains** (upgraders take note):
 
 The old per-EVM-chain `tokens: {SYMBOL: {address, decimals}}` map is gone. Decimals now come from RPC on-first-sight and are cached. Solana chains still use the old shape (whitelist-drop for Solana is a follow-up card).
 
@@ -737,7 +738,7 @@ The old per-EVM-chain `tokens: {SYMBOL: {address, decimals}}` map is gone. Decim
 
 Both signatures are required. The `nonce` for the authorization is the user's current EOA tx count from the chain — fetch it via `eth_getTransactionCount` immediately before signing to avoid races.
 
-The `GaslessDelegate` contract addresses per chain are recorded in the backend's `deployed.json` (and in `chains.json`); read them from there.
+The `GaslessDelegate` contract addresses per chain are recorded in the backend's `deployed.json` (chain metadata lives in `backend/config.yaml`); read them from there.
 
 ---
 
@@ -886,10 +887,11 @@ This section is for whoever runs the gasless backend, not integrators. Integrato
 | --- | --- |
 | `DATABASE_POSTGRES_*` | Postgres connection (host/port/user/password/database). Required at boot. |
 | `REDIS_*` | Redis for create→submit cache. `REDIS_DEFAULT_TTL_SECONDS=300` is overall cache cap; per-stash TTL governed by `GASLESS_CREATE_TTL_SECONDS=90`. |
-| `OPERATOR_PRIVATE_KEY` | EVM operator EOA (pays gas, becomes type-4 `from`). |
-| `GASLESS_TREASURY_ADDRESS` | EVM address that receives user fees. If unset, falls back to operator pubkey with a startup warning — fine in dev, **NOT** for production. |
-| `SOLANA_OPERATOR_PRIVATE_KEY` OR `SOLANA_OPERATOR_MNEMONIC` + `SOLANA_OPERATOR_ACCOUNT_INDEX` | Solana operator keypair. Phantom path `m/44'/501'/{index}'/0'`. |
-| `GASLESS_SOLANA_TREASURY_ADDRESS` | Solana base58 pubkey receiving fees. Defaults to operator pubkey (same warning applies). |
+| `OPERATOR_MNEMONIC` (+ optional `OPERATOR_MNEMONIC_INDEX`, default `0`) | **Primary** operator seed — one BIP-39 mnemonic derives BOTH the EVM operator (`m/44'/60'/0'/0/{index}`, becomes the type-4 `from`) and the Solana fee-payer (`m/44'/501'/{index}'/0'`). Fails fast at boot if unset in production. |
+| `OPERATOR_PRIVATE_KEY` / `SOLANA_OPERATOR_PRIVATE_KEY` / `SOLANA_OPERATOR_MNEMONIC` (+`SOLANA_OPERATOR_ACCOUNT_INDEX`) | Legacy per-chain fallbacks, used only when `OPERATOR_MNEMONIC` is unset. |
+| `GASLESS_TREASURY_ADDRESS` | EVM address that receives user fees. Unset → every accepted-fee request throws (the address is used directly in the transfer, no fallback). Required in production. |
+| `GASLESS_SOLANA_TREASURY_ADDRESS` | Solana address that receives user fees. Unset → **falls back to the operator's own pubkey**, silently banking user fees in the operator wallet (a boot warning is logged). Required in production. |
+| `ANKR_API_KEY` | RPC provider key, interpolated into each chain's keyed endpoint in `config.yaml` (`${ANKR_API_KEY}`). Unset → the keyed endpoint is dropped and the keyless public fallbacks are used. RPC endpoints themselves live in `config.yaml` (`chains[].rpcUrls`). To override them at deploy time without a rebuild, set `CHAINS_<NAME>_RPC_URLS` or `CHAINS_<chainId>_RPC_URLS` (comma-separated), e.g. `CHAINS_BSC_RPC_URLS` / `CHAINS_56_RPC_URLS`. The pre-RIN-135 `<CHAIN>_RPC_URLS` form is no longer read (the loader warns if one is still set). |
 | `RANGO_API_URL`, `RANGO_API_KEY` | Rango Basic API credentials. |
 
 ### Tuning knobs
@@ -904,8 +906,7 @@ This section is for whoever runs the gasless backend, not integrators. Integrato
 | `GASLESS_PREFUND_SIZING` | `simulate` | How the Solana user-SOL prefund is sized: `simulate` (default — measure the exact SOL via a with/without-prefund simulation, floored at the scan; fixes 0-SOL swap-fee estimates and catches non-ATA native fees; logs scan-vs-sim-vs-applied) or `scan` (static ATA-create scan — the automatic fallback when simulation is unavailable and an emergency opt-out). See [Solana architecture › Prefund sizing](./solana-architecture.md#prefund-sizing). |
 | `GASLESS_MAX_PREFUND_LAMPORTS` | `50000000` | Hard ceiling on operator→user SOL prefund per tx. Caller overrides **and** the `simulate`-measured value are rejected (`40001`) when they exceed this. |
 | `GASLESS_EXPOSE_ERROR_CAUSES` | `false` | When `true`, echoes the `causes[]` diagnostics (program logs, aggregator responses) in HTTP error responses. Off by default — a fingerprinting surface; the full detail always goes to the server logs regardless. Turn on only for dev/debug. Field-level validation causes (`90001`) are always returned. |
-| `SOLANA_DEFAULT_PRIORITY_MICROLAMPORTS_PER_CU` | `1000` | Default priority fee. Raise during congestion. |
-| `SOLANA_SOL_USD_PRICE`, `SOLANA_FEE_TOKEN_USD_PRICE` | unset | Required to enable the price-cross fallback when Rango is unavailable on swap-fee path. Backend refuses fallback math without both set (prevents silent operator subsidy). |
+| `SOLANA_DEFAULT_PRIORITY_MICROLAMPORTS_PER_CU` | `500000` | Default priority fee (see `config.yaml`). Raise during congestion. |
 | `SOLANA_MIN_FEE_LAMPORTS` | `666666` (≈$0.10) | Minimum fee on the swap-fee path only. Curve: $0.005 → fails routinely; $0.03 → minute-to-minute variance; $0.10 → always works for mainstream pairs; $0.50+ → works for thin meme pools. |
 | `RELAYER_CRON` / `RELAYER_SOLANA_CRON` | `*/5 * * * * *` | Cron cadence for the EVM / Solana relayer ticks (every 5s). |
 | `RELAYER_MAX_RETRIES` | `6` | Max retry-budget per row (per-row column snapshots on insert). |
