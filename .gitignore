@@ -47,4 +47,4 @@ contract/lib/
 # code-review generated outputs (local tooling state)
 code-review/issue_*
 code-review/**/diff_*.diff
-code-review/**/*.diff
+code-review/issue_*.diff

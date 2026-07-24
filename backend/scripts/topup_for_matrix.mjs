@@ -19,10 +19,11 @@ import bs58 from 'bs58';
 import nacl from 'tweetnacl';
 import * as bip39 from 'bip39';
 import { derivePath } from 'ed25519-hd-key';
+import { requireEnv } from './_env.mjs';
 
 const evmUserPk = () =>
   process.env.E2E_USER_PRIVATE_KEY?.trim() ||
-  HDNodeWallet.fromPhrase(process.env.TEST_MNEMONIC, undefined, `m/44'/60'/0'/0/${Number(process.env.TEST_EVM_USER_INDEX ?? '0')}`).privateKey;
+  HDNodeWallet.fromPhrase(requireEnv('TEST_MNEMONIC'), undefined, `m/44'/60'/0'/0/${Number(process.env.TEST_EVM_USER_INDEX ?? '0')}`).privateKey;
 
 for (const line of readFileSync(new URL('../.env', import.meta.url), 'utf8').split('\n')) {
   const m = line.match(/^([A-Z_][A-Z0-9_]*)=(.*)$/);
@@ -37,7 +38,7 @@ const BSC_RPC = (process.env.BSC_RPC_URLS?.split(',')[0] || 'https://bsc-rpc.pub
 function solanaUser() {
   const idx = process.env.TEST_SOLANA_ACCOUNT_INDEX;
   if (!idx) throw new Error('TEST_SOLANA_ACCOUNT_INDEX not set');
-  const seed = bip39.mnemonicToSeedSync((process.env.TEST_MNEMONIC || process.env.TEST_SOLANA_SENDER_PRIVATE_KEY), '');
+  const seed = bip39.mnemonicToSeedSync(requireEnv('TEST_MNEMONIC', 'TEST_SOLANA_SENDER_PRIVATE_KEY'), '');
   const { key } = derivePath(`m/44'/501'/${Number(idx)}'/0'`, seed.toString('hex'));
   return Keypair.fromSeed(key);
 }

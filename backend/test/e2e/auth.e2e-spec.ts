@@ -3,8 +3,9 @@ import { randomBytes, randomUUID } from 'crypto';
 import { StartedTestContainer } from 'testcontainers';
 import supertest from 'supertest';
 
+import { DataSource } from 'typeorm';
+
 import { AdminEntity } from 'src/modules/admin/domain/entity/admin.entity';
-import { AppDataSource } from 'src/core/database/data-source';
 
 import { bootBackend } from './helpers';
 
@@ -35,12 +36,11 @@ describe('auth e2e (real db + redis)', () => {
     redis = booted.redis;
 
     // Bootstrap admin directly (equivalent to `npm run seed:admin`).
+    // Use the booted app's DataSource — it points at this suite's throwaway
+    // container. The standalone AppDataSource resolves from the ambient env,
+    // i.e. the shared dev database whose keys the running server is using.
     adminKey = randomUUID();
-    if (!AppDataSource.isInitialized) await AppDataSource.initialize();
-    // Wipe any state a prior test run left behind on the shared dev DB.
-    // Order matters — audit rows FK back to admin / api_key.
-    await AppDataSource.query('TRUNCATE TABLE "api_key_audit", "admin_audit", "api_key", "admin" RESTART IDENTITY CASCADE');
-    await AppDataSource.getRepository(AdminEntity).save({ name: BOOTSTRAP_ADMIN_NAME, key: adminKey, isActive: true });
+    await app.get(DataSource).getRepository(AdminEntity).save({ name: BOOTSTRAP_ADMIN_NAME, key: adminKey, isActive: true });
   }, 180_000);
 
   afterAll(async () => {

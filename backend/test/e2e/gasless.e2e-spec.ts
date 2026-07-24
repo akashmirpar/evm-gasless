@@ -4,8 +4,10 @@ import { StartedTestContainer } from 'testcontainers';
 import supertest from 'supertest';
 
 import {
+  attachApiKey,
   bootBackend,
   E2EEnv,
+  seedApiKey,
   ensureUserHasNativeAndToken,
   pollUntilTerminal,
   readE2EEnv,
@@ -55,7 +57,7 @@ describeIfFunded('gasless e2e (real chain)', () => {
       [`E2E_RPC_URL_${env.chainId}`]: env.rpcUrl,
     });
     app = booted.app;
-    http = booted.http;
+    http = attachApiKey(booted.http, await seedApiKey(booted.app));
     postgres = booted.postgres;
     redis = booted.redis;
   });

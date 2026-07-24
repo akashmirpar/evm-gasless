@@ -93,7 +93,8 @@
     },
     "testEnvironment": "node",
     "moduleNameMapper": {
-      "^src/(.*)$": "<rootDir>/$1"
+      "^src/(.*)$": "<rootDir>/$1",
+      "^uuid$": "<rootDir>/../node_modules/uuid/dist/cjs/index.js"
     },
     "transformIgnorePatterns": [
       "/node_modules/(?!(@solana|rpc-websockets|superstruct|jayson)/)"

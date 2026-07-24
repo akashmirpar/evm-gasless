@@ -6,6 +6,7 @@ import { dirname, join, parse as parsePath } from 'path';
 import { loadChainsConfig } from '../../config/yaml_reader';
 import { PlutonException } from '../../common/errors';
 import { NetworkType, registerNonEvmChain } from '../../common/utils/network_type';
+import { redactRpcUrl } from '../../common/utils/redact_rpc';
 import { ChainConfigErrors } from './chain_config.errors';
 import { ChainConfig, ChainRegistryShape } from './chain_config.types';
 
@@ -38,14 +39,27 @@ export class ChainConfigService implements OnModuleInit {
     const deployedJsonPath = (this.config.get<string>('DEPLOYED_JSON_PATH')?.trim() || ChainConfigService.findDeployedJson(__dirname));
     this.logger.log(`reading ${chains.length} chains from config.yaml; deployed from ${deployedJsonPath}`);
 
-    const deployed: Record<string, string> = existsSync(deployedJsonPath)
+    const deployedExists = existsSync(deployedJsonPath);
+    const deployed: Record<string, string> = deployedExists
       ? (JSON.parse(readFileSync(deployedJsonPath, 'utf8')) as Record<string, string>)
       : {};
+    if (!deployedExists) {
+      const evmChains = chains.filter((c) => c.networkType !== 'SOLANA').map((c) => `${c.name}(${c.chainId})`);
+      this.logger.warn(
+        `deployed.json not found at ${deployedJsonPath} — every EVM chain will report 20003 NO_DEPLOYED_CONTRACT: ${evmChains.join(', ')}. ` +
+          `Set DEPLOYED_JSON_PATH or run contract/script/deploy.sh.`,
+      );
+    }
 
     const evmTreasury = (this.config.get<string>('GASLESS_TREASURY_ADDRESS') ?? '').trim();
     const solanaTreasury = (this.config.get<string>('GASLESS_SOLANA_TREASURY_ADDRESS') ?? '').trim();
     if (!evmTreasury) {
-      this.logger.warn('GASLESS_TREASURY_ADDRESS not set — EVM endpoints that need it will fail');
+      this.logger.warn('GASLESS_TREASURY_ADDRESS not set — EVM accepted-fee requests will fail (no fallback)');
+    }
+    if (!solanaTreasury) {
+      // Unlike EVM, the Solana path falls back to the operator's own pubkey, so
+      // an unset treasury silently banks user fees in the operator wallet.
+      this.logger.warn('GASLESS_SOLANA_TREASURY_ADDRESS not set — user fees will accrue to the OPERATOR wallet, not a treasury');
     }
 
     // Env-var-driven accepted list is retained only for Solana (the whitelist
@@ -60,9 +74,26 @@ export class ChainConfigService implements OnModuleInit {
 
     const out = new Map<number, ChainConfig>();
     for (const c of chains) {
+      // `chainId`/`nativeDecimals` must be real numbers: a quoted YAML value
+      // would key the registry by a string and every get(56) would miss, so the
+      // chain would answer 20001 CHAIN_NOT_SUPPORTED for all traffic.
+      const chainId = Number(c.chainId);
+      if (!Number.isInteger(chainId)) {
+        throw new Error(`config.yaml chain "${c.name}": chainId must be an unquoted integer, got ${JSON.stringify(c.chainId)}`);
+      }
+      const nativeDecimals = Number(c.nativeDecimals);
+      if (!Number.isInteger(nativeDecimals) || nativeDecimals < 0) {
+        throw new Error(`config.yaml chain "${c.name}": nativeDecimals must be an unquoted non-negative integer, got ${JSON.stringify(c.nativeDecimals)}`);
+      }
+      if (out.has(chainId)) {
+        throw new Error(`config.yaml: duplicate chainId ${chainId} — "${c.name}" collides with "${out.get(chainId)!.name}"`);
+      }
+      c.chainId = chainId;
+      c.nativeDecimals = nativeDecimals;
+
       const networkType: NetworkType = c.networkType === 'SOLANA' ? NetworkType.SOLANA : NetworkType.EVM;
       if (networkType !== NetworkType.EVM) {
-        registerNonEvmChain(c.chainId, networkType);
+        registerNonEvmChain(chainId, networkType);
       }
 
       const rpcUrls = (c.rpcUrls ?? [])
@@ -96,6 +127,13 @@ export class ChainConfigService implements OnModuleInit {
         });
       } else {
         const parsed = ChainConfigService.parseSolanaChain(c, legacyAcceptedSet);
+        if (parsed.widened) {
+          this.logger.warn(
+            `chain ${c.name}(${chainId}): GASLESS_ACCEPTED_FEE_TOKENS matched nothing, so ALL ${parsed.tokens.length} registry ` +
+              `SPLs are accepted as fee tokens (${parsed.tokens.map((t) => t.symbol).join(', ')}). ` +
+              `Set an explicit <chainId>:<SYMBOL> list to narrow this.`,
+          );
+        }
         out.set(c.chainId, {
           chainId: c.chainId,
           name: c.name,
@@ -115,6 +153,12 @@ export class ChainConfigService implements OnModuleInit {
     }
     this.chains = out;
     this.logger.log(`loaded ${out.size} chains: ${[...out.values()].map((c) => `${c.name}(${c.networkType})`).join(', ')}`);
+    // Log the endpoints actually in play (hosts only — the keyed URL carries
+    // ${ANKR_API_KEY} in its path) so a silent fallback to the keyless public
+    // endpoints is visible at boot rather than as 429s under load.
+    for (const c of out.values()) {
+      this.logger.log(`chain ${c.name}(${c.chainId}) rpc: ${c.rpcUrls.map(redactRpcUrl).join(', ')}`);
+    }
   }
 
   private static parseEvmChain(
@@ -144,7 +188,7 @@ export class ChainConfigService implements OnModuleInit {
   private static parseSolanaChain(
     c: ChainRegistryShape['chains'][number],
     legacyAcceptedSet: Set<string>,
-  ): { tokens: ChainConfig['tokens']; acceptedFeeTokenAddresses: string[]; mainFeeTokenAddress: string } {
+  ): { tokens: ChainConfig['tokens']; acceptedFeeTokenAddresses: string[]; mainFeeTokenAddress: string; widened: boolean } {
     const tokens = Object.entries(c.tokens ?? {}).map(([symbol, t]) => ({
       symbol,
       address: t.address.trim(),
@@ -163,7 +207,7 @@ export class ChainConfigService implements OnModuleInit {
       );
     }
     const main = accepted[0];
-    return { tokens, acceptedFeeTokenAddresses: accepted, mainFeeTokenAddress: main };
+    return { tokens, acceptedFeeTokenAddresses: accepted, mainFeeTokenAddress: main, widened: matches.length === 0 };
   }
 
   get(chainId: number): ChainConfig {

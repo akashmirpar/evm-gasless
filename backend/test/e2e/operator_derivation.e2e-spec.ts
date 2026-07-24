@@ -1,6 +1,12 @@
 import { ConfigService } from '@nestjs/config';
 import { HDNodeWallet } from 'ethers';
+import { mkdtempSync, rmSync, writeFileSync } from 'fs';
+import { tmpdir } from 'os';
+import { join } from 'path';
 
+import { __resetSecretCache } from 'src/config/secret_reader';
+import { __resetConfigCache, loadConfig } from 'src/config/yaml_reader';
+import { EvmExecutorService } from 'src/modules/relayer/services/evm_executor.service';
 import { SolanaWalletService } from 'src/modules/solana/services/solana_wallet.service';
 
 // Lives under test/e2e (not src/**/*.spec.ts) only because it loads
@@ -85,5 +91,66 @@ describe('unified operator derivation', () => {
     } finally {
       process.env.NODE_ENV = prev;
     }
+  });
+});
+
+/**
+ * The card's integration test: boot the REAL loader from a mnemonic-only secret
+ * file plus config.yaml, and assert both operator addresses come out right.
+ * Everything above stubs ConfigService, so nothing else verifies that the yaml +
+ * secret resolution actually reaches the derivation code.
+ */
+describe('operator derivation through the real config loader', () => {
+  const originalEnvFile = process.env.GASLESS_ENV_FILE;
+  const originalMnemonic = process.env.OPERATOR_MNEMONIC;
+  let secretFile: string;
+
+  beforeAll(() => {
+    const dir = mkdtempSync(join(tmpdir(), 'gasless-operator-'));
+    secretFile = join(dir, 'secrets.env');
+    // Mnemonic-only: every other value must come from config.yaml.
+    writeFileSync(secretFile, `OPERATOR_MNEMONIC=${TEST_MN}\nOPERATOR_MNEMONIC_INDEX=0\n`, { mode: 0o600 });
+    process.env.GASLESS_ENV_FILE = secretFile;
+    delete process.env.OPERATOR_MNEMONIC;
+    __resetSecretCache();
+    __resetConfigCache();
+  });
+
+  afterAll(() => {
+    if (originalEnvFile === undefined) delete process.env.GASLESS_ENV_FILE;
+    else process.env.GASLESS_ENV_FILE = originalEnvFile;
+    if (originalMnemonic !== undefined) process.env.OPERATOR_MNEMONIC = originalMnemonic;
+    rmSync(join(secretFile, '..'), { recursive: true, force: true });
+    __resetSecretCache();
+    __resetConfigCache();
+  });
+
+  it('resolves the mnemonic from the secret file into the merged config map', () => {
+    expect(loadConfig().OPERATOR_MNEMONIC).toBe(TEST_MN);
+  });
+
+  it('derives the Solana operator that the loader supplied', () => {
+    const merged = loadConfig();
+    const svc = new SolanaWalletService({ get: (k: string) => merged[k] } as unknown as ConfigService);
+    expect(svc.getOperatorKeypair().publicKey.toBase58()).toBe(SOL_501_0);
+  });
+
+  it('derives the EVM operator that the loader supplied', () => {
+    const merged = loadConfig();
+    const executor = Object.create(EvmExecutorService.prototype) as {
+      config: ConfigService;
+      cachedOperator: null;
+      readonly operatorWallet: { address: string };
+    };
+    executor.config = { get: (k: string) => merged[k] } as unknown as ConfigService;
+    executor.cachedOperator = null;
+    expect(executor.operatorWallet.address).toBe(EVM_60_0);
+  });
+
+  it('keeps the mnemonic out of process.env — it is resolved through the config map only', () => {
+    loadConfig();
+    expect(process.env.OPERATOR_MNEMONIC).toBeUndefined();
+    // A non-secret knob from the same file/YAML is still mirrored.
+    expect(process.env.SOLANA_MODE_DEFAULT).toBeDefined();
   });
 });
