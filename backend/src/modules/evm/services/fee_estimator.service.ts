@@ -1,5 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 import BigNumber from 'bignumber.js';
+import { Priority } from '@getomnichain/omnichain';
 
 import { PlutonException } from '../../../common/errors';
 import { ErrorCodes } from '../../../common/errors/codes';
@@ -74,20 +75,19 @@ export class FeeEstimatorService {
     const cfg = this.chainConfig.get(chainId);
 
     const gasUnits = await this.estimateGasUnits(chainId, userAddress, ops);
-    const gasPriceWei = await this.rpc.withFallback(chainId, async (provider) => {
-      const fee = await provider.getFeeData();
-      const candidate = fee.maxFeePerGas ?? fee.gasPrice;
-      if (candidate === null || candidate === undefined || BigInt(candidate) === 0n) {
+    const gasPriceWei = await this.rpc.withChain(chainId, async (chain) => {
+      const candidate = (await chain.suggestGas(Priority.NORMAL)).effectiveGasPrice();
+      if (candidate === 0n) {
         throw PlutonException(
           {
             code: ErrorCodes.CHAIN_GAS_ESTIMATION_FAILED,
             httpCode: 502,
-            message: `Chain ${chainId} RPC returned no usable gas price (both maxFeePerGas and gasPrice were null/zero). Refusing to fall back to a hardcoded default because the operator would silently under-quote the fee under load.`,
+            message: `Chain ${chainId} RPC returned no usable gas price (effective gas price was zero). Refusing to fall back to a hardcoded default because the operator would silently under-quote the fee under load.`,
             service: 'FeeEstimator',
           },
         );
       }
-      return BigInt(candidate);
+      return candidate;
     });
 
     const nativeFeeWeiRaw = new BigNumber((gasUnits * gasPriceWei).toString());
@@ -199,16 +199,17 @@ export class FeeEstimatorService {
   private async estimateGasUnits(chainId: number, userAddress: string, ops: UserOpDto[]): Promise<bigint> {
     let estimated: bigint;
     try {
-      estimated = await this.rpc.withFallback(chainId, async (provider) => {
+      estimated = await this.rpc.withChain(chainId, async (chain) => {
         let total = 0n;
         for (const op of ops) {
-          const g = await provider.estimateGas({
+          const { gasEstimate } = await chain.call({
             from: userAddress,
             to: op.to,
             value: BigInt(op.value),
             data: op.data,
+            estimateGas: true,
           });
-          total += BigInt(g);
+          total += gasEstimate ?? 0n;
         }
         return total;
       });

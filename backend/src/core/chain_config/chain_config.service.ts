@@ -5,20 +5,16 @@ import { dirname, join, parse as parsePath } from 'path';
 
 import { loadChainsConfig } from '../../config/yaml_reader';
 import { PlutonException } from '../../common/errors';
-import { NetworkType, registerNonEvmChain } from '../../common/utils/network_type';
+import { NetworkType, registerNonEvmChain } from '@getomnichain/omnichain';
 import { redactRpcUrl } from '../../common/utils/redact_rpc';
 import { ChainConfigErrors } from './chain_config.errors';
 import { ChainConfig, ChainRegistryShape } from './chain_config.types';
 
-/**
- * Industry-standard sentinel address for native gas tokens (1inch, Rango,
- * Paraswap all use this). Recognized case-insensitively.
- */
-export const NATIVE_TOKEN_SENTINEL = '0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee';
-
-export function isNativeSentinel(address: string): boolean {
-  return address.trim().toLowerCase() === NATIVE_TOKEN_SENTINEL;
-}
+// Native-gas-token sentinel lives in one place (common/native_token) so the DTO
+// decorator and this service can't drift. Imported for internal use and
+// re-exported for the modules that already import it from here.
+import { NATIVE_TOKEN_SENTINEL, isNativeSentinel } from '../../common/native_token';
+export { NATIVE_TOKEN_SENTINEL, isNativeSentinel };
 
 @Injectable()
 export class ChainConfigService implements OnModuleInit {
@@ -93,7 +89,16 @@ export class ChainConfigService implements OnModuleInit {
 
       const networkType: NetworkType = c.networkType === 'SOLANA' ? NetworkType.SOLANA : NetworkType.EVM;
       if (networkType !== NetworkType.EVM) {
-        registerNonEvmChain(chainId, networkType);
+        // No-op for -2000/-2002 (the package already seeds them); kept for a
+        // future config-driven non-EVM chain. Translate the ChainError on a
+        // family conflict into a config error naming the offending chain.
+        try {
+          registerNonEvmChain(chainId, networkType);
+        } catch (err) {
+          throw new Error(
+            `config.yaml chain "${c.name}" (chainId ${chainId}): cannot register as ${networkType} — ${(err as Error).message}`,
+          );
+        }
       }
 
       const rpcUrls = (c.rpcUrls ?? [])
@@ -151,6 +156,23 @@ export class ChainConfigService implements OnModuleInit {
         });
       }
     }
+    // Fail CLOSED on a stale accepted-fee-token entry. The whitelist joins on
+    // chainId (`<chainId>:<symbol|address>`); after the -100→-2000 rename, a
+    // deployment still carrying `-100:USDC,...` would match nothing and
+    // parseSolanaChain would silently WIDEN to every registry SPL (accepting the
+    // USDT the list excludes) with only a warn. Instead, reject a whitelist entry
+    // whose chainId prefix names a chain that isn't in the registry.
+    for (const entry of legacyAcceptedSet) {
+      const prefix = entry.split(':', 1)[0];
+      if (/^-?\d+$/.test(prefix) && !out.has(Number(prefix))) {
+        throw new Error(
+          `GASLESS_ACCEPTED_FEE_TOKENS references chainId ${prefix} which is not in the registry ` +
+            `(entry "${entry}"). Update the accepted-fee-token list to the current chain ids ` +
+            `(e.g. Solana is now -2000/-2002, not -100/-102).`,
+        );
+      }
+    }
+
     this.chains = out;
     this.logger.log(`loaded ${out.size} chains: ${[...out.values()].map((c) => `${c.name}(${c.networkType})`).join(', ')}`);
     // Log the endpoints actually in play (hosts only — the keyed URL carries

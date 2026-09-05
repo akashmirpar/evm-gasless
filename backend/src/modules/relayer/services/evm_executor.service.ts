@@ -1,6 +1,7 @@
 import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { HDNodeWallet, Interface, JsonRpcProvider, Signature, Transaction, Wallet, parseUnits } from 'ethers';
+import { HDNodeWallet, Interface, Signature, Transaction, Wallet, parseUnits } from 'ethers';
+import { Priority, isNotFound, isPending } from '@getomnichain/omnichain';
 
 import { PlutonException } from '../../../common/errors';
 import { ChainConfigService } from '../../../core/chain_config/chain_config.service';
@@ -92,27 +93,29 @@ export class EvmExecutorService implements OnModuleInit {
     ]);
     const operator = this.operatorWallet;
 
-    return this.withOperatorLock(operator.address, () => this.rpc.withFallback<PreparedTx>(req.chainId, async (provider) => {
-      const alreadyDelegated = await this.isAlreadyDelegated(provider, req.userAddress, req.delegateContractAddress);
-      const ownerSigner = operator.connect(provider);
-      const fee = await provider.getFeeData();
-      const ownerNonce = await provider.getTransactionCount(operator.address, 'pending');
+    return this.withOperatorLock(operator.address, () => this.rpc.withChain<PreparedTx>(req.chainId, async (chain) => {
+      const delegation = await chain.getDelegation(req.userAddress);
+      const alreadyDelegated = !!delegation && delegation.delegate.toLowerCase() === req.delegateContractAddress.toLowerCase();
+      const gas = await chain.suggestGas(Priority.NORMAL);
+      const ownerNonce = await chain.getPendingNonce(operator.address);
 
       const minTip = parseUnits('0.05', 'gwei');
-      const maxPriorityFeePerGas = (fee.maxPriorityFeePerGas ?? 0n) < minTip ? minTip : (fee.maxPriorityFeePerGas ?? minTip);
-      let maxFeePerGas = fee.maxFeePerGas ?? maxPriorityFeePerGas * 2n;
+      const suggestedTip = gas.maxPriorityFeePerGas ?? 0n;
+      const maxPriorityFeePerGas = suggestedTip < minTip ? minTip : suggestedTip;
+      let maxFeePerGas = gas.maxFeePerGas ?? maxPriorityFeePerGas * 2n;
       if (maxFeePerGas < maxPriorityFeePerGas) {
         maxFeePerGas = maxPriorityFeePerGas;
       }
 
+      // Signing is local (custody stays consumer-side) — no provider needed.
       const useType4 = !alreadyDelegated && !!req.authorization;
-      const signedTx = await ownerSigner.signTransaction({
+      const signedTx = await operator.signTransaction({
         to: req.userAddress,
         data,
         value: 0,
         type: useType4 ? 4 : 2,
         chainId: req.chainId,
-        nonce: ownerNonce,
+        nonce: Number(ownerNonce),
         gasLimit: BigInt(this.config.get<string>('GASLESS_TX_GAS_LIMIT') ?? '2000000'),
         maxFeePerGas,
         maxPriorityFeePerGas,
@@ -128,31 +131,28 @@ export class EvmExecutorService implements OnModuleInit {
   }
 
   async send(chainId: number, signedTx: string): Promise<BroadcastResult> {
-    return this.rpc.withFallback<BroadcastResult>(chainId, async (provider, url) => {
-      const tx = await provider.broadcastTransaction(signedTx);
-      this.logger.log(`broadcast chain=${chainId} hash=${tx.hash}`);
+    return this.rpc.withChain<BroadcastResult>(chainId, async (chain, url) => {
+      // The SDK treats provider "already-known" as success and returns the
+      // deterministic hash, so a failover re-broadcast of the SAME signed bytes
+      // to another endpoint can't double-send.
+      const txHash = await chain.broadcast(signedTx);
+      this.logger.log(`broadcast chain=${chainId} hash=${txHash}`);
       // Redact: the keyed endpoint carries ${ANKR_API_KEY} in its path and this
       // value is persisted to transaction_request.broadcast_rpc_url (and thus
       // every DB backup/replica). Only the host is needed post-mortem.
-      return { txHash: tx.hash, rpcUrl: redactRpcUrl(url) };
+      return { txHash, rpcUrl: redactRpcUrl(url) };
     });
   }
 
   async fetchReceipt(req: TransactionRequestEntity): Promise<{ status: 'pending' } | { status: 'success' | 'reverted'; blockNumber: number }> {
     if (!req.txHash) return { status: 'pending' };
-    return this.rpc.withFallback(req.chainId, async (provider) => {
-      const r = await provider.getTransactionReceipt(req.txHash!);
-      if (!r) return { status: 'pending' as const };
-      return r.status === 1
-        ? { status: 'success' as const, blockNumber: r.blockNumber }
-        : { status: 'reverted' as const, blockNumber: r.blockNumber };
+    return this.rpc.withChain(req.chainId, async (chain) => {
+      const st = await chain.getTransactionStatus(req.txHash!);
+      if (isPending(st) || isNotFound(st)) return { status: 'pending' as const };
+      return st.status === 'Success'
+        ? { status: 'success' as const, blockNumber: st.blockNumber ?? 0 }
+        : { status: 'reverted' as const, blockNumber: st.blockNumber ?? 0 };
     });
-  }
-
-  private async isAlreadyDelegated(provider: JsonRpcProvider, userAddress: string, delegateAddress: string): Promise<boolean> {
-    const code = await provider.getCode(userAddress);
-    const indicator = `0xef0100${delegateAddress.toLowerCase().slice(2)}`;
-    return code.toLowerCase() === indicator.toLowerCase();
   }
 
   private toAuthorizationStruct(req: TransactionRequestEntity): { chainId: number; address: string; nonce: number; signature: { r: string; s: string; yParity: 0 | 1 } } {

@@ -5,6 +5,7 @@ import { join } from 'path';
 import { ConfigService } from '@nestjs/config';
 
 import { loadChainsConfig } from '../../config/yaml_reader';
+import { PlutonHttpException } from '../../common/errors/pluton_exception';
 import { ChainConfigService } from './chain_config.service';
 
 jest.mock('../../config/yaml_reader', () => ({ loadChainsConfig: jest.fn() }));
@@ -24,6 +25,24 @@ const evmChain = (over: Record<string, unknown> = {}) => ({
   rpcUrls: ['https://bsc-rpc.publicnode.com'],
   acceptedFeeTokens: ['0x55d398326f99059ff775485246999027b3197955'],
   mainFeeToken: '0x55d398326f99059ff775485246999027b3197955',
+  ...over,
+});
+
+const USDC = 'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v';
+const XTSLA = 'XsDoVfqeBukxuZHWhdvWHBhgEHjGNst4MLodqsJHzoB';
+const solanaChain = (over: Record<string, unknown> = {}) => ({
+  chainId: -2000,
+  name: 'solana',
+  displayName: 'Solana',
+  nativeSymbol: 'SOL',
+  nativeDecimals: 9,
+  networkType: 'SOLANA',
+  rangoChainName: 'SOLANA',
+  rpcUrls: ['https://api.mainnet-beta.solana.com'],
+  tokens: {
+    USDC: { address: USDC, decimals: 6 },
+    xTSLA: { address: XTSLA, decimals: 8 },
+  },
   ...over,
 });
 
@@ -99,5 +118,67 @@ describe('ChainConfigService.load()', () => {
     mockedLoadChains.mockReturnValue([evmChain(), evmChain({ name: 'bsc-copy' })]);
     const svc = new ChainConfigService(config({ DEPLOYED_JSON_PATH: '/nonexistent.json', GASLESS_TREASURY_ADDRESS: '0xtreasury' }));
     expect(() => svc.load()).toThrow(/duplicate chainId 56/);
+  });
+
+  describe('Solana accepted-fee-token join (GASLESS_ACCEPTED_FEE_TOKENS)', () => {
+    const loadSolana = (acceptedEnv: string) => {
+      mockedLoadChains.mockReturnValue([solanaChain()]);
+      const svc = new ChainConfigService(
+        config({
+          DEPLOYED_JSON_PATH: '/nonexistent.json',
+          GASLESS_SOLANA_TREASURY_ADDRESS: XTSLA,
+          GASLESS_ACCEPTED_FEE_TOKENS: acceptedEnv,
+        }),
+      );
+      svc.load();
+      return svc.get(-2000).acceptedFeeTokenAddresses;
+    };
+
+    it('joins by <chainId>:<symbol> (case-insensitive)', () => {
+      expect(loadSolana('-2000:usdc')).toEqual([USDC]);
+    });
+
+    it('joins by <chainId>:<address>', () => {
+      expect(loadSolana(`-2000:${USDC}`)).toEqual([USDC]);
+    });
+
+    it('joins by bare <address>', () => {
+      expect(loadSolana(USDC)).toEqual([USDC]);
+    });
+
+    it('widens to ALL registry SPLs when the env matches nothing on this chain', () => {
+      // A prefix-less bogus address touches no chain, so it does not trip the
+      // fail-closed stale-prefix guard; the join just widens with a warn.
+      expect(loadSolana('SoBogusMintThatMatchesNothing1111111111111').sort()).toEqual([USDC, XTSLA].sort());
+    });
+
+    it('fails CLOSED when the env names a chainId absent from the registry (stale -100)', () => {
+      mockedLoadChains.mockReturnValue([solanaChain()]);
+      const svc = new ChainConfigService(
+        config({
+          DEPLOYED_JSON_PATH: '/nonexistent.json',
+          GASLESS_SOLANA_TREASURY_ADDRESS: XTSLA,
+          GASLESS_ACCEPTED_FEE_TOKENS: '-100:usdc',
+        }),
+      );
+      expect(() => svc.load()).toThrow(/chainId -100 which is not in the registry/);
+    });
+  });
+
+  it('a request on a retired chainId (-100) surfaces as CHAIN_NOT_SUPPORTED (20001, HTTP 400)', () => {
+    // The DTO now lets a well-formed address on -100 through so the SERVICE — not
+    // a misleading "invalid address" 400 — is what rejects the retired chain.
+    mockedLoadChains.mockReturnValue([evmChain()]);
+    const svc = new ChainConfigService(config({ DEPLOYED_JSON_PATH: '/nonexistent.json', GASLESS_TREASURY_ADDRESS: '0xtreasury' }));
+    svc.load();
+    expect(svc.getOrNull(-100)).toBeNull();
+    try {
+      svc.get(-100);
+      throw new Error('expected get(-100) to throw');
+    } catch (err) {
+      expect(err).toBeInstanceOf(PlutonHttpException);
+      expect((err as PlutonHttpException).errorInfo.code).toBe(20001);
+      expect((err as PlutonHttpException).getStatus()).toBe(400);
+    }
   });
 });

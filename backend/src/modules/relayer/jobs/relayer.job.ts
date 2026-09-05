@@ -24,6 +24,7 @@ export class RelayerJob extends ScheduledRowProcessor<
     TransactionRequestStatus.BROADCASTING,
     TransactionRequestStatus.BROADCASTED,
   ];
+  readonly entityClass = TransactionRequestEntity;
 
   constructor(
     private readonly scheduler: SchedulerService,

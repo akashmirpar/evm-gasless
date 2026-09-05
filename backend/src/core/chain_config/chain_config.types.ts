@@ -1,4 +1,4 @@
-import { NetworkType } from '../../common/utils/network_type';
+import { NetworkType } from '@getomnichain/omnichain';
 
 export interface ChainTokenConfig {
   symbol: string;

@@ -59,10 +59,10 @@ describe('fee-model e2e (fixed mode, real Redis + pricing)', () => {
       swap: async () => { throw new Error('swap should not be called'); },
     };
     const rpcStub: Partial<RpcService> = {
-      withFallback: (async (_chainId: number, fn: (p: unknown) => Promise<unknown>) =>
+      withChain: (async (_chainId: number, fn: (c: unknown) => Promise<unknown>) =>
         fn({
-          getFeeData: async () => ({ maxFeePerGas: 20_000_000n, gasPrice: 20_000_000n }),
-          estimateGas: async () => 100_000n,
+          suggestGas: async () => ({ effectiveGasPrice: () => 20_000_000n }),
+          call: async () => ({ gasEstimate: 100_000n }),
         })) as never,
     };
     const tokenMetaStub: Partial<TokenMetadataService> = {

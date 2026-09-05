@@ -6,17 +6,13 @@ import { NATIVE_TOKEN_SENTINEL } from '../../../core/chain_config/chain_config.s
 type BalanceMap = { native: bigint; erc20: bigint };
 
 function makeService(balances: BalanceMap): EvmService {
+  // Fake omnichain EvmChain: getBalance(owner) → native lamports/wei;
+  // getBalance(owner, tokenId) → ERC-20 balance.
+  const chain = {
+    getBalance: async (_owner: string, tokenId?: string) => (tokenId ? balances.erc20 : balances.native),
+  };
   const rpc = {
-    withFallback: jest.fn(async (_id: number, fn: (p: unknown) => Promise<unknown>) => {
-      const provider = {
-        getBalance: async () => balances.native,
-      };
-      const ethers = require('ethers');
-      jest.spyOn(ethers, 'Contract').mockImplementationOnce(() => ({
-        balanceOf: async () => balances.erc20,
-      }));
-      return fn(provider as never);
-    }),
+    withChain: jest.fn(async (_id: number, fn: (c: unknown) => Promise<unknown>) => fn(chain as never)),
   } as never;
   return new EvmService(
     {} as never, {} as never, {} as never, {} as never, {} as never, {} as never, {} as never,

@@ -103,7 +103,7 @@ chains:
     acceptedFeeTokens:
       - '0xfd086bc7cd5c481dcc9c85ebe478a1c0b69fcbb9'
     mainFeeToken: '0xfd086bc7cd5c481dcc9c85ebe478a1c0b69fcbb9'
-  - chainId: -100
+  - chainId: -2000
     name: 'solana'
     displayName: 'Solana'
     nativeSymbol: 'SOL'
@@ -129,7 +129,7 @@ chains:
       xAAPL:
         address: 'XsbEhLAtcf6HdfpFZ5xEMdqW8nfAvcsP5bdudRLJzJp'
         decimals: 8
-  - chainId: -102
+  - chainId: -2002
     name: 'solana-devnet'
     displayName: 'Solana Devnet'
     nativeSymbol: 'SOL'
@@ -170,7 +170,7 @@ gasless:
   # SPL in the chain's `tokens` map", which silently widens acceptance to tokens
   # (e.g. SPL USDT) this list intentionally excludes. EVM chains ignore it and
   # use their own `acceptedFeeTokens` above.
-  acceptedFeeTokens: '56:USDT,8453:USDT,42161:USDT,-100:USDC,-100:xTSLA,-100:xNVDA,-100:xAAPL'
+  acceptedFeeTokens: '56:USDT,8453:USDT,42161:USDT,-2000:USDC,-2000:xTSLA,-2000:xNVDA,-2000:xAAPL'
   baseFeeMarkupPercent: '15'
   defaultGasUnits: '1500000'
   rangoSlippage: '5.0'

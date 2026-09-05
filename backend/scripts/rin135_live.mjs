@@ -63,12 +63,12 @@ const wireIx = ixs.map(ix => ({
 
 const prio = process.env.PRIORITY ? { priorityMicroLamportsPerCu: process.env.PRIORITY } : {};
 const est = await axios.post(`${BACKEND}/gasless/solana/transactions/estimate`, {
-  chainId: -100, userAddress: user.publicKey.toBase58(), feeTokenAddress: FEE_MINT.toBase58(), instructions: wireIx, mode: MODE, ...prio,
+  chainId: 'mainnet', userAddress: user.publicKey.toBase58(), feeTokenAddress: FEE_MINT.toBase58(), instructions: wireIx, mode: MODE, ...prio,
 }, H).catch(e => { console.error('ESTIMATE FAILED:', e.response?.status, JSON.stringify(e.response?.data ?? e.message)); process.exit(1); });
 console.log(`estimate OK: feeAmount=${est.data.data.feeAmount} mode=${est.data.data.mode}`);
 
 const create = await axios.post(`${BACKEND}/gasless/solana/transactions`, {
-  chainId: -100, userAddress: user.publicKey.toBase58(), feeTokenAddress: FEE_MINT.toBase58(), instructions: wireIx, mode: MODE, ...prio,
+  chainId: 'mainnet', userAddress: user.publicKey.toBase58(), feeTokenAddress: FEE_MINT.toBase58(), instructions: wireIx, mode: MODE, ...prio,
 }, H).catch(e => { console.error('CREATE FAILED:', e.response?.status, JSON.stringify(e.response?.data ?? e.message)); process.exit(1); });
 const c = create.data.data;
 console.log(`create OK requestId=${c.requestId} mode=${c.mode} prefundSig=${c.prefundTxSignature ?? '(none)'}`);

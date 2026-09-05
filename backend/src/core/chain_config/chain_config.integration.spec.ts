@@ -38,7 +38,7 @@ describe('ChainConfigService — real config.yaml', () => {
     svc.load();
 
     const ids = svc.all().map((c) => c.chainId).sort((a, b) => a - b);
-    expect(ids).toEqual([-102, -100, 56, 8453, 42161]);
+    expect(ids).toEqual([-2002, -2000, 56, 8453, 42161]);
 
     // EVM chains have a delegate address merged from deployed.json.
     for (const evm of [56, 8453, 42161]) {

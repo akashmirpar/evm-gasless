@@ -87,7 +87,7 @@ const wireIx = ixs.map(ix => ({
 }));
 
 const body = {
-  chainId: -100,
+  chainId: 'mainnet',
   userAddress: user.publicKey.toBase58(),
   feeTokenAddress: USDC_MINT.toBase58(),
   instructions: wireIx,

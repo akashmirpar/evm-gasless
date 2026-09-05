@@ -37,9 +37,6 @@ contract/broadcast/
 contract/.env
 contract/.env.*
 !contract/.env.example
-# forge installs deps into contract/lib as git submodules; if you'd
-# rather vendor them, delete the line below.
-contract/lib/
 
 # Claude
 .claude/settings.local.json

@@ -1,7 +1,7 @@
 import { Type } from 'class-transformer';
 import { IsArray, IsInt, ValidateNested } from 'class-validator';
 
-import { AddressField } from '../../../common/address/address_field.decorator';
+import { AddressField } from '../../../common/address_field.decorator';
 import { UserOpDto } from './estimate.dto';
 
 export class CreateTransactionRequestDto {

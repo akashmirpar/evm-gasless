@@ -148,11 +148,12 @@ A generic abstract base class for the "scan-and-advance" pattern. Two type param
 - `S extends number` — the status enum type (e.g. `SolanaTransactionRequestStatus`).
 - `E extends BaseStatefulEntity<S>` — the row type (entity with at least `id`, `status`, `retryTimes`, `nextRetryTime`, and the per-row retry-policy columns).
 
-The base class implements the polling loop and the retry pipeline. Subclasses fill in five abstract members:
+The base class implements the polling loop and the retry pipeline. Subclasses fill in six abstract members:
 
 | member                            | what it does                                                              |
 | --------------------------------- | ------------------------------------------------------------------------- |
 | `actionableStatuses: S[]`         | which statuses to scan for on each tick                                   |
+| `entityClass`                     | the entity the base class targets for the exhaustion-fallback UPDATE (§2.8) |
 | `resolveRetryPolicy(row): Policy` | fallback retry policy when the row's per-row columns are null             |
 | `processRow(row): ProcessRowResult` | the per-row work; returns one of four results (see below)                |
 | `onRetryExhausted(row, reason)`   | called when retry budget is hit — typically transitions row to GIVE_UP    |
@@ -218,7 +219,7 @@ async execute():
         running = false
 
 async processWithRetry(row):
-    policy = effectiveRetryPolicy(row)  // throws → onRetryExhausted("unresolvable_policy")
+    policy = effectiveRetryPolicy(row)  // throws → applyExhaustionBackoff("unresolvable_policy"); handler NOT called
     try:
         result = await processRow(row)
     catch err:
@@ -230,13 +231,26 @@ async processWithRetry(row):
         case 'done':
             return
         case 'fail':
-            await onRetryExhausted(row, result.reason)
+            await runExhaustion(row, result.reason)
             return
         case 'wait':
             await scheduleWait(row, policy)
             return
         case 'reschedule':
             await scheduleRetry(row, policy, result.reason)
+
+async runExhaustion(row, reason):
+    ok = await safeOnExhausted(row, reason)          // never throws; reports success
+    await applyExhaustionBackoff(row, reason, ok ? "handler_noop" : "handler_threw")
+
+async applyExhaustionBackoff(row, reason, cause):
+    // Guarded: only pins a row the handler left actionable. Writes nextRetryTime
+    // ONLY — retryTimes is the shared budget read by isRetryExhausted.
+    delay = clamp(2 * (row.nextRetryTime - row.updatedAt), 30s, 5min)
+    affected = UPDATE <entity> SET next_retry_time = now + delay
+               WHERE id = row.id AND status IN actionableStatuses
+    if affected == 0: return                          // handler moved it — silent no-op
+    logger.warn("scheduler_exhaustion_pinned", {entity, id, reason, cause, nextRetryTime, backoffMs})
 
 async scheduleWait(row, policy):
     // do NOT bump retryTimes
@@ -245,7 +259,7 @@ async scheduleWait(row, policy):
 async scheduleRetry(row, policy, reason):
     next = row.retryTimes + 1
     if next >= policy.maxRetryTimes:
-        await onRetryExhausted(row, "retry_exhausted:" + reason)
+        await runExhaustion(row, "retry_exhausted:" + reason)
         return
     await scheduleNextAttempt(row, next, now + policy.baseDelayMs * policy.exponentialRate^next)
 ```
@@ -287,7 +301,13 @@ The base class logs at three points:
 - `info` when `effectiveRetryPolicy` falls back due to legacy rows (omit if noisy).
 - `warn` when `processRow` throws an uncaught exception (with row id and error message).
 - `warn` when a row hits retry exhaustion (with row id, reason, retryTimes, maxRetryTimes).
-- `error` when `onRetryExhausted` itself throws (the worst case — the row is now stuck in a non-terminal status with budget exhausted; manual intervention).
+- `error` when `onRetryExhausted` itself throws. The row is then *pinned*, not stuck: the exhaustion fallback backs it off so it cannot be re-selected on the next tick.
+- `warn` `scheduler_exhaustion_pinned` `{entity, id, reason, cause, nextRetryTime, backoffMs}` — emitted once per fallback UPDATE that actually pinned a row. `cause` is `handler_threw` (the handler raised), `handler_noop` (it returned but left the row actionable), or `unresolvable_policy` (no policy could be resolved, so the handler was deliberately not called — an unresolvable policy is an infrastructure fault, not a verdict on the row). A steady stream of these is the alerting signal for a row that cannot terminate.
+- `error` `scheduler_exhaustion_backoff_failed` / `scheduler_exhaustion_backoff_release_failed` when the fallback UPDATE or its connection release fails. Both are swallowed: a pinned row is the oldest and heads every batch, so letting either escape would drop the rest of the tick.
+
+The backoff doubles the interval the row was last scheduled with (`nextRetryTime - updatedAt`), clamped to 30s..5min, so repeated pins decay 30s → 60s → 120s → 240s → 300s. It continues the row's existing interval rather than restarting it: a row that spent its full retry budget arrives carrying that budget's final delay (320s with the shipped defaults) and so pins straight at the 300s ceiling, while a row with no prior interval starts at the 30s floor.
+
+Two limitations follow from deriving the interval from `updated_at`. It works only because TypeORM appends the `@UpdateDateColumn` to the fallback UPDATE — a raw query there would flatten escalation to a permanent 30s. And any other write that moves `updated_at` without moving `next_retry_time` (an admin edit, a second replica) resets the ladder to the floor; that is bounded and self-correcting. It is deliberately independent of the job's `RetryPolicy`: at exhaustion `retryTimes >= maxRetryTimes`, so `baseDelayMs * exponentialRate^retryTimes` would produce multi-hour delays and turn a visible hot loop into an invisible stall.
 
 ### 2.9 Crash-safety guarantees
 

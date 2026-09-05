@@ -3,7 +3,7 @@ import BigNumber from 'bignumber.js';
 import { FeeEstimatorService } from './fee_estimator.service';
 import { FeePolicyService } from '../../../core/pricing';
 import { NATIVE_TOKEN_SENTINEL } from '../../../core/chain_config/chain_config.service';
-import { NetworkType } from '../../../common/utils/network_type';
+import { NetworkType } from '@getomnichain/omnichain';
 
 interface QuoteCall {
   from: { chainName: string; address: string | null; symbol: string; decimals: number };
@@ -30,14 +30,14 @@ function makeEstimator(opts: {
   } as never;
   const chainConfig = { get: () => cfg } as never;
 
-  const withFallback = jest.fn(async (_id: number, fn: (p: unknown) => Promise<unknown>) => {
-    const provider = {
-      getFeeData: async () => ({ maxFeePerGas: 20_000_000n, gasPrice: 20_000_000n }),
-      estimateGas: async () => 100_000n,
+  const withChain = jest.fn(async (_id: number, fn: (c: unknown) => Promise<unknown>) => {
+    const chain = {
+      suggestGas: async () => ({ effectiveGasPrice: () => 20_000_000n }),
+      call: async () => ({ gasEstimate: 100_000n }),
     };
-    return fn(provider as never);
+    return fn(chain as never);
   });
-  const rpc = { withFallback } as never;
+  const rpc = { withChain } as never;
 
   const quoteCalls: QuoteCall[] = [];
   let quoteIndex = 0;

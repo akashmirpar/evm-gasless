@@ -50,17 +50,19 @@ The gasless backend exposes four HTTP endpoints per family. The shape is paralle
 
 ## Supported chains
 
-| chainId | Family | Network | Native | Default-accepted fee tokens |
+| `chainId` (request value) | Family | Network | Native | Default-accepted fee tokens |
 | --- | --- | --- | --- | --- |
-| 56 | evm | BSC | BNB | USDT |
-| 8453 | evm | Base | ETH | USDT |
-| 42161 | evm | Arbitrum One | ETH | USDT |
-| -100 | solana | Solana mainnet | SOL | USDC, xTSLA, xNVDA, xAAPL |
-| -102 | solana | Solana devnet | SOL | USDC (test only) |
+| `56` | evm | BSC | BNB | USDT |
+| `8453` | evm | Base | ETH | USDT |
+| `42161` | evm | Arbitrum One | ETH | USDT |
+| `"mainnet"` | solana | Solana mainnet | SOL | USDC, xTSLA, xNVDA, xAAPL |
+| `"devnet"` | solana | Solana devnet | SOL | USDC (test only) |
 
 > **Note:** the `GaslessDelegate` contract is only deployed where `deployed.json` has an entry (currently BSC `56` and Arbitrum `42161`). A create on a listed-but-undeployed chain (e.g. Base) returns `20003 CHAIN_NO_DEPLOYED_CONTRACT`.
 
-Solana cluster IDs are negative integers because Solana doesn't natively have a numeric chain ID — the negative space is a Pluton-side convention so the same `chainId` parameter can route both families.
+**EVM endpoints** take a numeric `chainId` (`56`, `8453`, `42161`). **Solana endpoints** take a cluster **name** — `"mainnet"` or `"devnet"` — not a number (the route is already namespaced under `/gasless/solana/…`, so the value names the cluster, not the family). An unknown name (or a raw number) is a `400`. Internally the name resolves to the omnichain canonical cluster id (`-2000` / `-2002`, from `@getomnichain/omnichain`), which is what the backend uses for config keys and what the **responses** echo back in their `chainId` field.
+
+> **Breaking change:** Solana requests now send the cluster **name** (`"mainnet"` / `"devnet"`), not a numeric id. The previously-documented numeric ids (`-2000` / `-2002`, and the older `-100` / `-102`) are **not accepted on the request** — a numeric `chainId` on a Solana endpoint returns `400`. Update integrations to the name.
 
 Add or change a chain by editing the `chains:` section of `backend/config.yaml` (chain id, name, `rpcUrls`, accepted fee tokens, Solana `tokens`). The deployed `GaslessDelegate` address per EVM chain lives in the generated `gasless/chains/deployed.json` (written by `contract/script/deploy.sh`). The backend reads both at boot.
 
@@ -80,7 +82,7 @@ Request:
 
 ```json
 {
-  "chainId": -100,
+  "chainId": "mainnet",
   "userAddress": "G2KhTWRh61PRj8W6mFeCLKTdcNj3NFVrmaQLbwJY557p",
   "feeTokenAddress": "XsDoVfqeBukxuZHWhdvWHBhgEHjGNst4MLodqsJHzoB",
   "instructions": [/* see family-specific section */]
@@ -119,7 +121,7 @@ Returns the unsigned transaction and bookkeeping:
 ```json
 {
   "requestId": "1decaa2b-191d-48bd-a809-07efa0b0764d",
-  "chainId": -100,
+  "chainId": -2000,
   "feePayer": "B8qN5BCQS4Q7rqPoH2tTCWzbvS48B3sdUagwSbZS1NNe",
   "unsignedTransactionBase64": "AgAAA...",
   "recentBlockhash": "DvR4...",
@@ -162,7 +164,7 @@ Returns `{ requestId, status }` where `status` is the FSM state. **On Solana, su
 {
   "requestId": "1decaa2b-191d-48bd-a809-07efa0b0764d",
   "status": "MINED_SUCCESS",
-  "chainId": -100,
+  "chainId": -2000,
   "txHash": "5S6dFffZ8rdCuCVCxFUp1U8EcxQy4Xqy9eXmaF3EwQp1hCwmA3yRxnsGQthWaF4Qts1g6xQJBS3Asoho7XkUGG7j",
   "retryTimes": 0,
   "failureReason": null,
@@ -171,7 +173,7 @@ Returns `{ requestId, status }` where `status` is the FSM state. **On Solana, su
 }
 ```
 
-`txHash` is the Solana signature for `-100` / `-102` chains and the EVM tx hash otherwise. `failureReason` is populated when the request reaches `MINED_FAILED` or `FAILED_PERMANENT`.
+`txHash` is the Solana signature for `-2000` / `-2002` chains and the EVM tx hash otherwise. `failureReason` is populated when the request reaches `MINED_FAILED` or `FAILED_PERMANENT`.
 
 ---
 
@@ -302,7 +304,7 @@ Example for a Rango route that goes through USDT0 (LayerZero OFT, ~$1.50 native 
 
 ```json
 {
-  "chainId": -100,
+  "chainId": "mainnet",
   "userAddress": "G2KhTWRh…",
   "feeTokenAddress": "EPjFW…",
   "instructions": [/* parsed Rango response */],
@@ -377,7 +379,7 @@ async function relayBridge(opts: {
   userSecretKey: Uint8Array;                      // 64-byte ed25519 secret
   userSolPrefundExtraLamports?: string;           // set for LayerZero/USDT0 routes
 }): Promise<string> {
-  const chainId = -100;
+  const chainId = 'mainnet'; // "mainnet" | "devnet" — Solana request value names the cluster (route is already /gasless/solana/)
 
   const estimate = await postJson<Estimate>(`${BASE_URL}/gasless/solana/transactions/estimate`, {
     chainId,
@@ -532,10 +534,10 @@ Two configurations exceed Solana's 1232-byte wire limit for reasons intrinsic to
 
 ### Solana fee-token behavior — what's accepted directly vs swapped
 
-The accepted-fee-token list is configured per-cluster via `GASLESS_ACCEPTED_FEE_TOKENS` env var. The default on Solana mainnet (`chainId: -100`) is:
+The accepted-fee-token list is configured per-cluster via `GASLESS_ACCEPTED_FEE_TOKENS` env var, keyed by the internal cluster id (`-2000` for Solana mainnet — the same canonical id the API name `"mainnet"` resolves to). The default on Solana mainnet is:
 
 ```
-GASLESS_ACCEPTED_FEE_TOKENS=56:USDT,8453:USDT,42161:USDT,-100:USDC,-100:xTSLA,-100:xNVDA,-100:xAAPL
+GASLESS_ACCEPTED_FEE_TOKENS=56:USDT,8453:USDT,42161:USDT,-2000:USDC,-2000:xTSLA,-2000:xNVDA,-2000:xAAPL
 ```
 
 **Three fee paths exist on Solana:**

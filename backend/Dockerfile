@@ -10,28 +10,31 @@
 # ──────────────────────────────────────────────────────────────────────────
 
 # ---- Stage 1: compile the TypeScript sources ----
-FROM node:20-alpine AS builder
+FROM node:20.19-alpine AS builder
 WORKDIR /app
 
 # Toolchain for optional native addons (bufferutil / utf-8-validate) that fall
 # back to source when no musl prebuild is available.
 RUN apk add --no-cache python3 make g++
 
-COPY backend/package.json backend/package-lock.json ./
+COPY backend/package.json backend/package-lock.json backend/.npmrc ./
 RUN npm ci
 
 COPY backend/ ./
 RUN npm run build
+# Gate the image on the ESM-only @getomnichain/omnichain loading from the
+# compiled CJS build on THIS pinned base image (require(esm) needs Node >=20.19).
+RUN node scripts/smoke-omnichain-cjs.cjs
 
 # ---- Stage 2: production-only node_modules ----
-FROM node:20-alpine AS deps
+FROM node:20.19-alpine AS deps
 WORKDIR /app
 RUN apk add --no-cache python3 make g++
-COPY backend/package.json backend/package-lock.json ./
+COPY backend/package.json backend/package-lock.json backend/.npmrc ./
 RUN npm ci --omit=dev && npm cache clean --force
 
 # ---- Stage 3: minimal runtime image ----
-FROM node:20-alpine AS runner
+FROM node:20.19-alpine AS runner
 WORKDIR /app
 ENV NODE_ENV=production \
     SERVICE_HOST=0.0.0.0 \
@@ -57,4 +60,4 @@ EXPOSE 3100
 HEALTHCHECK --interval=30s --timeout=5s --start-period=40s --retries=3 \
   CMD wget -q --spider "http://127.0.0.1:${SERVICE_PORT}/health" || exit 1
 
-CMD ["node", "dist/main.js"]
+CMD ["node", "dist/src/main.js"]

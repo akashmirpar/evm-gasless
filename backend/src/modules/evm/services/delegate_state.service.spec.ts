@@ -1,52 +1,49 @@
+import { AbiCoder } from 'ethers';
+
 import { DelegateStateService } from './delegate_state.service';
 
-class FakeProvider {
-  constructor(private codeMap: Record<string, string>, private nonceMap: Record<string, bigint | Error>) {}
-  async getCode(addr: string): Promise<string> { return this.codeMap[addr.toLowerCase()] ?? '0x'; }
-  destroy(): void {}
+const OUR_DELEGATE = '0x7AF705BEA2Aa1F1cB4ffB18cbB94B26Bba343a87';
+const coder = AbiCoder.defaultAbiCoder();
+
+// Fake omnichain EvmChain: `getDelegation` parses the 7702 designator from a
+// code map; `call` returns the ABI-encoded nonce (or throws to model a revert).
+class FakeChain {
+  constructor(
+    private codeMap: Record<string, string>,
+    private nonceMap: Record<string, bigint | Error>,
+  ) {}
+
+  async getDelegation(addr: string): Promise<{ delegate: string } | null> {
+    const code = (this.codeMap[addr.toLowerCase()] ?? '0x').toLowerCase();
+    if (!code.startsWith('0xef0100') || code.length < 48) return null;
+    return { delegate: '0x' + code.slice(8) };
+  }
+
+  async call({ to }: { to: string; data: string }): Promise<{ result?: string }> {
+    const v = this.nonceMap[to.toLowerCase()];
+    if (v instanceof Error) throw v;
+    return { result: coder.encode(['uint256'], [v ?? 0n]) };
+  }
 }
 
-const OUR_DELEGATE = '0x7AF705BEA2Aa1F1cB4ffB18cbB94B26Bba343a87';
-
 function makeService(codeMap: Record<string, string>, nonceMap: Record<string, bigint | Error>): DelegateStateService {
-  const rpcs = ['https://rpc.a', 'https://rpc.b'];
   const chainConfig = {
-    get: () => ({ rpcUrls: rpcs }),
+    get: () => ({ rpcUrls: ['https://rpc.a', 'https://rpc.b'] }),
     requireDelegateAddress: () => OUR_DELEGATE,
   } as never;
-  const provider = new FakeProvider(codeMap, nonceMap);
+  const chain = new FakeChain(codeMap, nonceMap);
   const rpc = {
-    providerFor: () => provider as never,
-    withFallback: async (_id: number, fn: (p: unknown) => Promise<bigint>) => fn(provider),
+    evmChainsFor: () => [chain, chain] as never,
+    withChain: async (_id: number, fn: (c: unknown) => Promise<bigint>) => fn(chain),
   } as never;
-  const svc = new DelegateStateService(chainConfig, rpc);
-  const jsonEthers = require('ethers');
-  const contractSpy = jest.spyOn(jsonEthers, 'Contract').mockImplementation((addr) => {
-    const key = String(addr).toLowerCase();
-    return {
-      nonce: async () => {
-        const v = nonceMap[key];
-        if (v instanceof Error) throw v;
-        return v;
-      },
-    } as never;
-  });
-  (svc as unknown as { __spy: unknown }).__spy = contractSpy;
-  return svc;
+  return new DelegateStateService(chainConfig, rpc);
 }
 
 describe('DelegateStateService.readNonce — fresh-EOA regression (M7 follow-up)', () => {
   const USER = '0x886b748C1000000000000000000000000000AAAA';
 
-  afterEach(() => jest.restoreAllMocks());
-
-  it('returns 0n for a fresh EOA (eth_getCode == "0x"), does NOT throw', async () => {
+  it('returns 0n for a fresh EOA (no delegation), does NOT throw', async () => {
     const svc = makeService({ [USER.toLowerCase()]: '0x' }, {});
-    await expect(svc.readNonce(56, USER)).resolves.toBe(0n);
-  });
-
-  it('returns 0n even when getCode returns lowercase-empty variants', async () => {
-    const svc = makeService({ [USER.toLowerCase()]: '0x0' }, {});
     await expect(svc.readNonce(56, USER)).resolves.toBe(0n);
   });
 

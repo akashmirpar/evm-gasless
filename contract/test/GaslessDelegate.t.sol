@@ -3,6 +3,7 @@ pragma solidity ^0.8.27;
 
 import {Test} from "forge-std/Test.sol";
 import {GaslessDelegate} from "../src/GaslessDelegate.sol";
+import {GASLESS_DELEGATE_SALT, GASLESS_DELEGATE_INIT_CODE_HASH, GASLESS_DELEGATE_ADDRESS} from "../script/GaslessDelegateAddress.sol";
 
 contract Recipient {
     uint256 public hits;
@@ -328,5 +329,23 @@ contract GaslessDelegateTest is Test {
 
         vm.expectRevert(GaslessDelegate.InvalidSignature.selector);
         _delegated().executeBatch(ops, 1, 0, user2Sig);
+    }
+}
+
+contract GaslessDelegateCreate2Test is Test {
+    // The frozen init-code hash IS the canonical address: this fails the moment a
+    // dependency, compiler flag, or source edit changes the compiled creation
+    // code, catching an address fork in CI before anyone reaches a deploy.
+    function test_initCodeHashMatchesFrozenValue() public {
+        assertEq(keccak256(type(GaslessDelegate).creationCode), GASLESS_DELEGATE_INIT_CODE_HASH);
+    }
+
+    // GASLESS_DELEGATE_ADDRESS is exactly the address the canonical CREATE2
+    // factory (0x4e59...4956C, the deployer vm.computeCreate2Address assumes)
+    // yields for this salt + init code — so any chain deployed through the script
+    // lands here. Freezing it makes an accidental fork a failing test, not a
+    // surprise on the next chain.
+    function test_canonicalAddressMatchesFrozenValue() public {
+        assertEq(vm.computeCreate2Address(GASLESS_DELEGATE_SALT, GASLESS_DELEGATE_INIT_CODE_HASH), GASLESS_DELEGATE_ADDRESS);
     }
 }

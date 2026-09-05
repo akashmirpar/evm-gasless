@@ -1,6 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { Contract, Signature, verifyTypedData } from 'ethers';
+import { Signature, verifyTypedData } from 'ethers';
 import { v4 as uuidv4 } from 'uuid';
 
 import { PlutonException } from '../../../common/errors';
@@ -128,9 +128,10 @@ export class EvmService {
       throw PlutonException(GaslessErrors.InvalidAuthorization, err);
     }
 
-    const onChainNonce = await this.rpc.withFallback(cached.chainId, async (provider) => {
-      return provider.getTransactionCount(cached.userAddress, 'latest');
-    });
+    // Pending nonce is the account nonce the 7702 authorization must match at
+    // inclusion (a user EOA carries no self-pending txs in the gasless flow, so
+    // this equals the confirmed count).
+    const onChainNonce = await this.rpc.withChain(cached.chainId, (chain) => chain.getPendingNonce(cached.userAddress));
     if (BigInt(dto.authorization.nonce) !== BigInt(onChainNonce)) {
       throw PlutonException(GaslessErrors.InvalidAuthorization, {
         reason: 'authorization nonce does not match user EOA on-chain tx count',
@@ -197,11 +198,10 @@ export class EvmService {
     const nativeRequired = isNative ? feeAmount + userOpValueSum : userOpValueSum;
     const feeRequired = isNative ? nativeRequired : feeAmount;
 
-    const balances = await this.rpc.withFallback(chainId, async (provider) => {
-      const native = BigInt(await provider.getBalance(userAddress, 'latest'));
+    const balances = await this.rpc.withChain(chainId, async (chain) => {
+      const native = await chain.getBalance(userAddress);
       if (isNative) return { fee: native, native };
-      const erc20 = new Contract(feeTokenAddress, ['function balanceOf(address) view returns (uint256)'], provider);
-      const fee = BigInt(await erc20.balanceOf(userAddress));
+      const fee = await chain.getBalance(userAddress, feeTokenAddress);
       return { fee, native };
     });
 

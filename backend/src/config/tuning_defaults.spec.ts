@@ -37,7 +37,7 @@ const EXPECTED: Record<string, string> = {
   'gasless.defaultGasUnits': '1500000',
   'gasless.txGasLimit': '2000000',
   // Deliberate whitelist: empty would make every registry SPL an accepted fee token.
-  'gasless.acceptedFeeTokens': '56:USDT,8453:USDT,42161:USDT,-100:USDC,-100:xTSLA,-100:xNVDA,-100:xAAPL',
+  'gasless.acceptedFeeTokens': '56:USDT,8453:USDT,42161:USDT,-2000:USDC,-2000:xTSLA,-2000:xNVDA,-2000:xAAPL',
 };
 
 function at(obj: Record<string, unknown>, path: string): unknown {

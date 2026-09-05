@@ -1,16 +1,43 @@
 {
-  "moduleFileExtensions": ["js", "json", "ts"],
+  "moduleFileExtensions": [
+    "js",
+    "json",
+    "ts",
+    "mjs",
+    "cjs"
+  ],
   "rootDir": "..",
   "testEnvironment": "node",
   "testRegex": "test/e2e/.*\\.e2e-spec\\.ts$",
-  "setupFiles": ["reflect-metadata", "dotenv/config"],
-  "transform": { "^.+\\.(t|j)s$": "ts-jest" },
+  "setupFiles": [
+    "reflect-metadata",
+    "dotenv/config"
+  ],
+  "transform": {
+    "^.+\\.ts$": "ts-jest",
+    "^.+\\.(js|mjs|cjs)$": [
+      "babel-jest",
+      {
+        "configFile": false,
+        "presets": [
+          [
+            "@babel/preset-env",
+            {
+              "targets": {
+                "node": "current"
+              }
+            }
+          ]
+        ]
+      }
+    ]
+  },
   "moduleNameMapper": {
     "^src/(.*)$": "<rootDir>/src/$1",
     "^uuid$": "<rootDir>/node_modules/uuid/dist/cjs/index.js"
   },
   "transformIgnorePatterns": [
-    "/node_modules/(?!(@solana|rpc-websockets|superstruct|jayson)/)"
+    "/node_modules/(?!(@solana|rpc-websockets|superstruct|jayson|@getomnichain|decimal\\.js)/)"
   ],
   "testTimeout": 600000
 }

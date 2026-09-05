@@ -2,17 +2,20 @@ import { CACHE_MANAGER } from '@nestjs/cache-manager';
 import { Inject, Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import type { Cache } from 'cache-manager';
-import { Contract } from 'ethers';
+import { Interface } from 'ethers';
 
 import { PlutonException } from '../../common/errors';
 import { ChainConfigService, isNativeSentinel } from '../chain_config/chain_config.service';
 import { GaslessErrors } from '../../common/errors/gasless.errors';
-import { NetworkType } from '../../common/utils/network_type';
+import { NetworkType } from '@getomnichain/omnichain';
 import { REDIS_KEY_PREFIX } from '../../common/redis';
 import { RpcService } from '../rpc/rpc.service';
 
-const ERC20_DECIMALS_ABI = ['function decimals() view returns (uint8)'];
-const ERC20_SYMBOL_ABI = ['function symbol() view returns (string)'];
+// Pure ABI codec — the RPC read goes through the omnichain EvmChain (`call`).
+const ERC20_META_IFACE = new Interface([
+  'function decimals() view returns (uint8)',
+  'function symbol() view returns (string)',
+]);
 
 export interface TokenMetadata {
   address: string;
@@ -54,9 +57,9 @@ export class TokenMetadataService {
 
     let decimals: number;
     try {
-      decimals = await this.rpc.withFallback(chainId, async (provider) => {
-        const contract = new Contract(lower, ERC20_DECIMALS_ABI, provider);
-        const raw = await contract.decimals();
+      decimals = await this.rpc.withChain(chainId, async (chain) => {
+        const { result } = await chain.call({ to: lower, data: ERC20_META_IFACE.encodeFunctionData('decimals', []) });
+        const [raw] = ERC20_META_IFACE.decodeFunctionResult('decimals', result ?? '0x');
         return Number(raw);
       });
     } catch (err) {
@@ -94,9 +97,10 @@ export class TokenMetadataService {
       // ignore
     }
     try {
-      const sym = await this.rpc.withFallback(chainId, async (provider) => {
-        const contract = new Contract(lower, ERC20_SYMBOL_ABI, provider);
-        return String(await contract.symbol());
+      const sym = await this.rpc.withChain(chainId, async (chain) => {
+        const { result } = await chain.call({ to: lower, data: ERC20_META_IFACE.encodeFunctionData('symbol', []) });
+        const [s] = ERC20_META_IFACE.decodeFunctionResult('symbol', result ?? '0x');
+        return String(s);
       });
       try {
         await this.cache.set(cacheKey, sym, this.ttlMs);
