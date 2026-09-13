@@ -82,9 +82,9 @@ chains:
     rangoChainName: 'BASE'
     rpcUrls:
       - 'https://rpc.ankr.com/base/${ANKR_API_KEY}'
-      - 'https://base-rpc.publicnode.com'
       - 'https://mainnet.base.org'
       - 'https://1rpc.io/base'
+      - 'https://base-rpc.publicnode.com'
     acceptedFeeTokens:
       - '0xfde4c96c8593536e31f229ea8f37b2ada2699bb2'
     mainFeeToken: '0xfde4c96c8593536e31f229ea8f37b2ada2699bb2'
@@ -96,9 +96,9 @@ chains:
     rangoChainName: 'ARBITRUM'
     rpcUrls:
       - 'https://rpc.ankr.com/arbitrum/${ANKR_API_KEY}'
-      - 'https://arbitrum-one-rpc.publicnode.com'
       - 'https://arb1.arbitrum.io/rpc'
       - 'https://1rpc.io/arb'
+      - 'https://arbitrum-one-rpc.publicnode.com'
     acceptedFeeTokens:
       - '0xfd086bc7cd5c481dcc9c85ebe478a1c0b69fcbb9'
     mainFeeToken: '0xfd086bc7cd5c481dcc9c85ebe478a1c0b69fcbb9'
