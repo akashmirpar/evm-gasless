@@ -145,7 +145,7 @@ That's it. The scheduler service calls `execute()` on its cron tick. Errors thro
 
 A generic abstract base class for the "scan-and-advance" pattern. Two type parameters:
 
-- `S extends number` — the status enum type (e.g. `SolanaTransactionRequestStatus`).
+- `S extends number` — the status enum type (e.g. `TransactionRequestStatus`).
 - `E extends BaseStatefulEntity<S>` — the row type (entity with at least `id`, `status`, `retryTimes`, `nextRetryTime`, and the per-row retry-policy columns).
 
 The base class implements the polling loop and the retry pipeline. Subclasses fill in six abstract members:
@@ -281,7 +281,6 @@ Standard names use `SCREAMING_SNAKE_CASE` strings, declared in a single shared f
 ```
 const SchedulerName = {
   EvmRelayer:     "SCHEDULER_EVM_RELAYER",
-  SolanaRelayer:  "SCHEDULER_SOLANA_RELAYER",
   ...
 }
 ```
@@ -290,7 +289,7 @@ The override env var for `SCHEDULER_EVM_RELAYER` is `SCHEDULER_EVM_RELAYER_TIME`
 
 **Default cron values currently in use (gasless backend):**
 
-- `RELAYER_CRON` / `RELAYER_SOLANA_CRON` — both default to `*/5 * * * * *` (every 5 seconds). Each relayer (EVM and Solana) ticks independently on this schedule. Tick durations under no load are ~4-30 ms; the `running` guard prevents reentrance if a tick is still in flight when the next cron fires.
+- `RELAYER_CRON` — defaults to `*/5 * * * * *` (every 5 seconds).
 
 Status-polling cadence on the client side should NOT be tighter than this — there's no point checking more often than the backend itself ticks. 2-5 seconds is the sweet spot for client polling.
 
@@ -667,9 +666,8 @@ For implementers who want to read the TypeScript source:
 - `src/core/scheduler/scheduled_row_processor.ts` — the pipeline
 - `src/core/scheduler/scheduler.service.ts` — cron registration + boot
 - `src/core/scheduler/scheduler_name.ts` — central name registry
-- `src/modules/relayer/jobs/relayer.job.ts` — example consumer (EVM relayer)
-- `src/modules/relayer-solana/jobs/solana_relayer.job.ts` — example consumer (Solana relayer)
-- `src/modules/relayer-solana/fsm/solana_transaction_request.fsm.ts` — example FSM declaration
-- `src/modules/relayer-solana/domain/entity/status/solana_transaction_request.{status,action}.ts` — example status/action enums
+- `src/modules/relayer/jobs/relayer.job.ts` — the relayer consumer
+- `src/modules/relayer/fsm/transaction_request.fsm.ts` — the FSM declaration
+- `src/modules/relayer/domain/entity/status/transaction_request.{status,action}.ts` — status/action enums
 
-The two relayer jobs are the canonical reference implementations. Read those for the full crash-safety + retry semantics in action.
+The relayer job is the canonical reference implementation. Read it for the full crash-safety + retry semantics in action.
