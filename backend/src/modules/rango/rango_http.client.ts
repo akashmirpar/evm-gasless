@@ -11,7 +11,6 @@ import {
   RangoMetaToken,
   RangoQuoteRequest,
   RangoQuoteResult,
-  RangoSolanaCall,
   RangoSwapRequest,
   RangoSwapResult,
 } from './rango.types';
@@ -49,10 +48,6 @@ interface RangoBasicSwapResponse extends RangoBasicQuoteResponse {
     value?: string;
     approveTo?: string;
     approveData?: string;
-    // Solana fields (type === 'SOLANA').
-    txType?: 'VERSIONED' | 'LEGACY';
-    serializedMessage?: number[];
-    recentBlockhash?: string;
   };
 }
 
@@ -116,23 +111,6 @@ export class RangoHttpClient extends RangoClient {
         approveAddress: data.tx.approveTo ?? null,
       };
       return { outputAmount: out, outputAmountMin: min, requestId: data.requestId, evmTransaction: evm, raw: data };
-    }
-
-    if (data.tx.type === 'SOLANA') {
-      if (!Array.isArray(data.tx.serializedMessage) || data.tx.serializedMessage.length === 0) {
-        throw PlutonException(RangoErrors.InvalidResponse, data);
-      }
-      if (!data.tx.recentBlockhash) {
-        throw PlutonException(RangoErrors.InvalidResponse, data);
-      }
-      const txType: 'VERSIONED' | 'LEGACY' = data.tx.txType === 'LEGACY' ? 'LEGACY' : 'VERSIONED';
-      const solana: RangoSolanaCall = {
-        serializedMessage: Uint8Array.from(data.tx.serializedMessage),
-        recentBlockhash: data.tx.recentBlockhash,
-        from: data.tx.from ?? '',
-        txType,
-      };
-      return { outputAmount: out, outputAmountMin: min, requestId: data.requestId, solanaTransaction: solana, raw: data };
     }
 
     throw PlutonException(RangoErrors.InvalidResponse, data);

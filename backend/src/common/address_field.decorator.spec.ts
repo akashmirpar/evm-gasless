@@ -4,7 +4,6 @@ import { IsInt, validateSync } from 'class-validator';
 import { createRequire } from 'module';
 import { dirname } from 'path';
 
-import { CHAIN_ID_SOLANA_MAINNET } from '@getomnichain/omnichain';
 
 import { AddressField, NATIVE_TOKEN_SENTINEL } from './address_field.decorator';
 
@@ -51,16 +50,6 @@ describe('AddressField — native sentinel + per-family canonicalization', () =>
   it('rejects a malformed EVM address', () => {
     expect(run(BSC, '0xnothex').ok).toBe(false);
     expect(run(BSC, 'not-an-address').ok).toBe(false);
-  });
-
-  it('accepts a base58 Solana address on a Solana chain, unchanged', () => {
-    const { ok, value } = run(CHAIN_ID_SOLANA_MAINNET, 'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v');
-    expect(ok).toBe(true);
-    expect(value).toBe('EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v');
-  });
-
-  it('rejects a malformed Solana address', () => {
-    expect(run(CHAIN_ID_SOLANA_MAINNET, 'not base58 !!!').ok).toBe(false);
   });
 
   it('lets a retired chainId (-100) PASS DTO validation so the service returns CHAIN_NOT_SUPPORTED', () => {

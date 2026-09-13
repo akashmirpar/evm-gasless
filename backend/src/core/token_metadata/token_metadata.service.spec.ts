@@ -91,9 +91,4 @@ describe('TokenMetadataService.getDecimals', () => {
       .rejects.toMatchObject({ errorInfo: expect.objectContaining({ code: 40010 }) });
   });
 
-  it('throws when called on a Solana chain', async () => {
-    const { svc } = makeService({ chainConfig: { networkType: NetworkType.SOLANA } });
-    await expect(svc.getDecimals(-2000, '0x1111111111111111111111111111111111111111'))
-      .rejects.toThrow(/only supports EVM/);
-  });
 });

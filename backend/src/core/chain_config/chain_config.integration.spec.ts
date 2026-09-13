@@ -19,7 +19,7 @@ function config(map: Record<string, string>): ConfigService {
 }
 
 describe('ChainConfigService — real config.yaml', () => {
-  it('loads the five committed chains and merges EVM delegate addresses from deployed.json', () => {
+  it('loads the three committed chains and merges delegate addresses from deployed.json', () => {
     const dir = mkdtempSync(join(tmpdir(), 'gasless-cfg-int-'));
     const emptySecrets = join(dir, 'empty.env');
     writeFileSync(emptySecrets, '');
@@ -32,17 +32,16 @@ describe('ChainConfigService — real config.yaml', () => {
       config({
         DEPLOYED_JSON_PATH: DEPLOYED_JSON,
         GASLESS_TREASURY_ADDRESS: '0x0000000000000000000000000000000000000001',
-        GASLESS_SOLANA_TREASURY_ADDRESS: 'So11111111111111111111111111111111111111112',
       }),
     );
     svc.load();
 
     const ids = svc.all().map((c) => c.chainId).sort((a, b) => a - b);
-    expect(ids).toEqual([-2002, -2000, 56, 8453, 42161]);
+    expect(ids).toEqual([56, 8453, 42161]);
 
-    // EVM chains have a delegate address merged from deployed.json.
-    for (const evm of [56, 8453, 42161]) {
-      expect(svc.get(evm).delegateContractAddress).toMatch(/^0x[0-9a-f]{40}$/);
+    // Every chain has a delegate address merged from deployed.json.
+    for (const id of [56, 8453, 42161]) {
+      expect(svc.get(id).delegateContractAddress).toMatch(/^0x[0-9a-f]{40}$/);
     }
     // Every chain resolved at least one usable RPC URL (ANKR key unset → public fallback).
     for (const c of svc.all()) {

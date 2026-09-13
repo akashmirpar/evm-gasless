@@ -37,7 +37,7 @@
     "^uuid$": "<rootDir>/node_modules/uuid/dist/cjs/index.js"
   },
   "transformIgnorePatterns": [
-    "/node_modules/(?!(@solana|rpc-websockets|superstruct|jayson|@getomnichain|decimal\\.js)/)"
+    "/node_modules/(?!(@getomnichain|decimal\\.js)/)"
   ],
   "testTimeout": 600000
 }

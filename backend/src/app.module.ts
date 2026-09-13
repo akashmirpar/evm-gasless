@@ -20,10 +20,8 @@ import { TokenMetadataModule } from './core/token_metadata/token_metadata.module
 import { AdminModule } from './modules/admin/admin.module';
 import { AuthModule } from './modules/auth/auth.module';
 import { EvmModule } from './modules/evm/evm.module';
-import { SolanaModule } from './modules/solana/solana.module';
 import { RangoModule } from './modules/rango/rango.module';
 import { RelayerModule } from './modules/relayer/relayer.module';
-import { RelayerSolanaModule } from './modules/relayer-solana/relayer-solana.module';
 
 @Module({
   imports: [
@@ -88,8 +86,6 @@ import { RelayerSolanaModule } from './modules/relayer-solana/relayer-solana.mod
     RangoModule,
     RelayerModule,
     EvmModule,
-    SolanaModule,
-    RelayerSolanaModule,
   ],
   providers: [
     { provide: APP_PIPE, useFactory: () => new ValidationPipe({ whitelist: true, transform: true }) },

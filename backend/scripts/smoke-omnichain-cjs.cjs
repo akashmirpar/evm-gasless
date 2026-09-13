@@ -14,9 +14,7 @@ const omni = require('@getomnichain/omnichain');
 
 assert.strictEqual(typeof omni.networkTypeOf, 'function', 'networkTypeOf export missing');
 assert.strictEqual(typeof omni.registerNonEvmChain, 'function', 'registerNonEvmChain export missing');
-assert.strictEqual(omni.CHAIN_ID_SOLANA_MAINNET, -2000, 'Solana mainnet id is not -2000');
 assert.strictEqual(omni.networkTypeOf(56), 'EVM', 'EVM typing broken');
-assert.strictEqual(omni.networkTypeOf(-2000), 'SOLANA', 'Solana typing broken');
 
 // Also load a COMPILED dist module that imports the ESM package, so this proves
 // the tsc-emitted CommonJS graph (not just a hand-written .cjs) can require(esm).

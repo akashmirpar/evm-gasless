@@ -16,7 +16,7 @@ describe('boot-time route audit', () => {
   it('discovers the known controllers (regression against a rename that hides one)', () => {
     const names = controllers.map((p) => p.split('/').pop());
     expect(names).toEqual(
-      expect.arrayContaining(['evm.controller.ts', 'solana.controller.ts', 'admin.controller.ts', 'api_key.controller.ts']),
+      expect.arrayContaining(['evm.controller.ts', 'admin.controller.ts', 'api_key.controller.ts']),
     );
   });
 

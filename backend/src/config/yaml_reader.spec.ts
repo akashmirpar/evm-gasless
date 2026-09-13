@@ -49,7 +49,7 @@ describe('yamlReader / loadConfig', () => {
     writeFileSync(emptySecrets, '');
     writeFileSync(
       yamlPath,
-      ['gasless:', "  createTtlSeconds: '90'", 'solana:', "  modeDefault: 'single'"].join('\n')
+      ['gasless:', "  createTtlSeconds: '90'", 'relayer:', "  maxRetries: '6'"].join('\n')
     );
     process.env.GASLESS_ENV_FILE = emptySecrets;
 
@@ -57,7 +57,7 @@ describe('yamlReader / loadConfig', () => {
     const cfg = loadConfig();
 
     expect(cfg.GASLESS_CREATE_TTL_SECONDS).toBe('90');
-    expect(cfg.SOLANA_MODE_DEFAULT).toBe('single');
+    expect(cfg.RELAYER_MAX_RETRIES).toBe('6');
 
     delete process.env.GASLESS_ENV_FILE;
   });
@@ -264,19 +264,19 @@ describe('yamlReader / loadConfig', () => {
     delete process.env.GASLESS_ENV_FILE;
   });
 
-  it('a secret-file SOLANA_BUNDLED_MODE_ENABLED=false reaches the resolved map (full-stack disable)', () => {
+  it('a secret-file GASLESS_NO_LOSS_CHECK=false reaches the resolved map (full-stack disable)', () => {
     // The card exists partly because a YAML literal once masked this disable
     // path. Prove the secret-file value survives the fold + empty-drop and the
     // mirror all the way to the resolved map that resolveMode reads.
     const dir = mkdtempSync(join(tmpdir(), 'gasless-cfg-'));
     const yamlPath = join(dir, 'config.yaml');
     const envPath = join(dir, 'env');
-    writeFileSync(yamlPath, ['solana:', "  bundledModeEnabled: 'true'"].join('\n'));
-    writeFileSync(envPath, 'SOLANA_BUNDLED_MODE_ENABLED=false\n');
+    writeFileSync(yamlPath, ['gasless:', "  noLossCheck: 'true'"].join('\n'));
+    writeFileSync(envPath, 'GASLESS_NO_LOSS_CHECK=false\n');
     process.env.GASLESS_ENV_FILE = envPath;
 
     yamlReader(yamlPath);
-    expect(loadConfig().SOLANA_BUNDLED_MODE_ENABLED).toBe('false');
+    expect(loadConfig().GASLESS_NO_LOSS_CHECK).toBe('false');
     delete process.env.GASLESS_ENV_FILE;
   });
 
@@ -285,24 +285,24 @@ describe('yamlReader / loadConfig', () => {
     const emptySecrets = join(dir, 'empty.env');
     writeFileSync(emptySecrets, '');
     process.env.GASLESS_ENV_FILE = emptySecrets;
-    delete process.env.SOLANA_MODE_DEFAULT;
+    delete process.env.RELAYER_MAX_RETRIES;
 
-    // Boot A: YAML sets mode default 'bundled' -> mirrored onto process.env.
+    // Boot A: YAML sets maxRetries '9' -> mirrored onto process.env.
     const yamlA = join(dir, 'a.yaml');
-    writeFileSync(yamlA, ['solana:', "  modeDefault: 'bundled'"].join('\n'));
+    writeFileSync(yamlA, ['relayer:', "  maxRetries: '9'"].join('\n'));
     yamlReader(yamlA);
-    expect(loadConfig().SOLANA_MODE_DEFAULT).toBe('bundled');
-    expect(process.env.SOLANA_MODE_DEFAULT).toBe('bundled');
+    expect(loadConfig().RELAYER_MAX_RETRIES).toBe('9');
+    expect(process.env.RELAYER_MAX_RETRIES).toBe('9');
 
     __resetConfigCache();
-    // The mirror must be undone, or boot B's env fold would pick up 'bundled'.
-    expect(process.env.SOLANA_MODE_DEFAULT).toBeUndefined();
+    // The mirror must be undone, or boot B's env fold would pick up '9'.
+    expect(process.env.RELAYER_MAX_RETRIES).toBeUndefined();
 
-    // Boot B: YAML sets 'single'; must win, not the stale mirrored 'bundled'.
+    // Boot B: YAML sets '6'; must win, not the stale mirrored '9'.
     const yamlB = join(dir, 'b.yaml');
-    writeFileSync(yamlB, ['solana:', "  modeDefault: 'single'"].join('\n'));
+    writeFileSync(yamlB, ['relayer:', "  maxRetries: '6'"].join('\n'));
     yamlReader(yamlB);
-    expect(loadConfig().SOLANA_MODE_DEFAULT).toBe('single');
+    expect(loadConfig().RELAYER_MAX_RETRIES).toBe('6');
     delete process.env.GASLESS_ENV_FILE;
   });
 
@@ -351,20 +351,20 @@ describe('yamlReader / loadConfig', () => {
     const yamlPath = join(dir, 'config.yaml');
     const envPath = join(dir, 'env');
     writeFileSync(yamlPath, ['service:', "  port: '3100'"].join('\n'));
-    writeFileSync(envPath, 'OPERATOR_MNEMONIC=test test junk\nSOLANA_JITO_UUID=secret-uuid\n');
+    writeFileSync(envPath, 'OPERATOR_MNEMONIC=test test junk\nRANGO_API_KEY=secret-key\n');
     process.env.GASLESS_ENV_FILE = envPath;
     delete process.env.OPERATOR_MNEMONIC;
-    delete process.env.SOLANA_JITO_UUID;
+    delete process.env.RANGO_API_KEY;
 
     yamlReader(yamlPath);
     const cfg = loadConfig();
 
     // Resolvable through the config map…
     expect(cfg.OPERATOR_MNEMONIC).toBe('test test junk');
-    expect(cfg.SOLANA_JITO_UUID).toBe('secret-uuid');
+    expect(cfg.RANGO_API_KEY).toBe('secret-key');
     // …but never leaked onto process.env (readable via /proc, inherited by children).
     expect(process.env.OPERATOR_MNEMONIC).toBeUndefined();
-    expect(process.env.SOLANA_JITO_UUID).toBeUndefined();
+    expect(process.env.RANGO_API_KEY).toBeUndefined();
     // A non-secret key from the same file IS mirrored.
     expect(process.env.SERVICE_PORT).toBe('3100');
     delete process.env.GASLESS_ENV_FILE;

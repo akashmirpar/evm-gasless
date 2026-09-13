@@ -1,7 +1,7 @@
 import { ChainConfigService } from './chain_config.service';
 
 function callParseEvm(raw: unknown) {
-  return (ChainConfigService as unknown as { parseEvmChain: (r: unknown, s: Set<string>) => unknown }).parseEvmChain(raw, new Set());
+  return (ChainConfigService as unknown as { parseChain: (r: unknown) => unknown }).parseChain(raw);
 }
 
 function chain(overrides: Partial<{ chainId: number; name: string; acceptedFeeTokens: string[]; mainFeeToken: string }>) {
@@ -19,8 +19,8 @@ function chain(overrides: Partial<{ chainId: number; name: string; acceptedFeeTo
   };
 }
 
-describe('ChainConfigService.parseEvmChain (boot validation)', () => {
-  it('accepts a valid EVM chain (mainFeeToken ∈ acceptedFeeTokens)', () => {
+describe('ChainConfigService.parseChain (boot validation)', () => {
+  it('accepts a valid chain (mainFeeToken ∈ acceptedFeeTokens)', () => {
     const result = callParseEvm(chain({}) as never) as {
       acceptedFeeTokenAddresses: string[];
       mainFeeTokenAddress: string;

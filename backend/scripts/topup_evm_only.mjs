@@ -1,4 +1,4 @@
-// Retry the EVM leg only (Solana already done). Fixes the approve flow:
+// Retry the EVM top-up leg. Fixes the approve flow:
 // Rango's `approveTo` is the TOKEN contract, `txTo` is the DEX router that
 // pulls from us via transferFrom, so the allowance check must be against
 // `txTo`, not `approveTo`.
