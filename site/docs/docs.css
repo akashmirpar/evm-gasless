@@ -1,0 +1,70 @@
+:root {
+  --theme-color: #1f2937;
+  --ink: #111827;
+  --ink-2: #374151;
+  --muted: #6b7280;
+  --rule: #e5e7eb;
+  --paper: #ffffff;
+  --paper-2: #f9fafb;
+  --code-bg: #f3f4f6;
+  --link: #1d4ed8;
+  --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  --mono: ui-monospace, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace;
+}
+
+body { font-family: var(--sans); color: var(--ink); background: var(--paper); font-size: 15.5px; line-height: 1.65; }
+
+/* sidebar */
+.sidebar { background: var(--paper-2); border-right: 1px solid var(--rule); padding-top: 0; }
+.sidebar > h1 { margin: 0; padding: 22px 24px 14px; border-bottom: 1px solid var(--rule); }
+.sidebar > h1 a { color: var(--ink); font-weight: 600; font-size: 17px; letter-spacing: -0.01em; }
+.sidebar ul li a { color: var(--ink-2); font-size: 14.5px; }
+.sidebar ul li.active > a { color: var(--ink); border-right: 2px solid var(--ink); font-weight: 500; }
+.sidebar ul li a:hover { color: var(--ink); text-decoration: none; }
+.sidebar-nav > ul > li { margin-top: 18px; }
+.sidebar-nav > ul > li > p, .sidebar-nav > ul > li > strong { color: var(--muted); font-size: 11.5px; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase; margin: 0 0 6px 0; }
+.sidebar .search { border-bottom: 1px solid var(--rule); margin: 0; padding: 12px 16px; }
+.sidebar .search input { font-family: var(--sans); font-size: 14px; color: var(--ink); background: var(--paper); border: 1px solid var(--rule); border-radius: 4px; padding: 8px 10px; }
+.sidebar .search .clear-button { right: 22px; }
+.sidebar .search .results-panel { padding: 0; }
+.sidebar .search .matching-post { border-bottom: 1px solid var(--rule); padding: 10px 0; }
+.sidebar .search h2 { font-size: 14px; }
+
+/* content */
+.markdown-section { max-width: 820px; padding: 40px 48px 80px; }
+.markdown-section h1 { font-size: 30px; font-weight: 650; letter-spacing: -0.02em; margin: 0 0 18px; line-height: 1.2; }
+.markdown-section h2 { font-size: 21px; font-weight: 600; letter-spacing: -0.01em; margin: 44px 0 12px; padding-top: 22px; border-top: 1px solid var(--rule); }
+.markdown-section h3 { font-size: 17px; font-weight: 600; margin: 30px 0 8px; }
+.markdown-section p, .markdown-section li { color: var(--ink-2); }
+.markdown-section a { color: var(--link); text-decoration: none; border-bottom: 1px solid transparent; }
+.markdown-section a:hover { border-bottom-color: var(--link); }
+.markdown-section code { font-family: var(--mono); font-size: 0.88em; background: var(--code-bg); color: var(--ink); padding: 2px 5px; border-radius: 3px; }
+.markdown-section pre { background: var(--code-bg); border: 1px solid var(--rule); border-radius: 6px; padding: 0; }
+.markdown-section pre > code { font-family: var(--mono); font-size: 13px; line-height: 1.6; padding: 16px 18px; background: transparent; color: var(--ink); }
+.markdown-section table { display: table; width: 100%; font-size: 14.5px; border: 1px solid var(--rule); border-collapse: collapse; }
+.markdown-section th { background: var(--paper-2); font-weight: 600; text-align: left; border: 1px solid var(--rule); padding: 9px 12px; }
+.markdown-section td { border: 1px solid var(--rule); padding: 9px 12px; vertical-align: top; }
+.markdown-section tr:nth-child(2n) { background: transparent; }
+.markdown-section blockquote { border-left: 3px solid var(--rule); background: transparent; color: var(--muted); margin: 18px 0; padding: 2px 0 2px 18px; }
+.markdown-section blockquote p { color: var(--ink-2); }
+.markdown-section hr { border: 0; border-top: 1px solid var(--rule); margin: 36px 0; }
+.markdown-section strong { color: var(--ink); font-weight: 600; }
+
+/* prism: restrained palette */
+.token.comment { color: var(--muted); }
+.token.keyword, .token.builtin { color: #7c2d12; }
+.token.string { color: #14532d; }
+.token.function { color: #1e3a8a; }
+.token.number, .token.boolean { color: #7c2d12; }
+.token.punctuation, .token.operator { color: var(--ink-2); }
+
+/* github corner: keep it quiet */
+.github-corner svg { fill: var(--ink); color: var(--paper); }
+.app-nav { display: none; }
+
+@media (max-width: 768px) {
+  .markdown-section { padding: 28px 22px 60px; }
+}
+
+/* a markdown hr directly above an h2 would double the rule */
+.markdown-section hr + h2 { border-top: 0; padding-top: 0; margin-top: 8px; }

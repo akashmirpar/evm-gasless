@@ -1,0 +1,44 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>evm-gasless — Documentation</title>
+  <meta name="description" content="Documentation for evm-gasless: gasless transactions on any EIP-7702 chain. Integration guide, API reference, architecture, error codes.">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <link rel="stylesheet" href="vendor/vue.css">
+  <link rel="stylesheet" href="docs.css">
+</head>
+<body>
+  <div id="app">Loading…</div>
+  <script>
+    window.$docsify = {
+      name: 'evm-gasless',
+      nameLink: '/',
+      repo: 'https://github.com/akashmirpar/evm-gasless',
+      loadSidebar: true,
+      subMaxLevel: 2,
+      auto2top: true,
+      relativePath: true,
+      executeScript: false,
+      search: {
+        placeholder: 'Search the docs',
+        noData: 'No results',
+        depth: 3,
+        paths: 'auto'
+      },
+      alias: {
+        '/.*/_sidebar.md': '/_sidebar.md'
+      },
+      externalLinkTarget: '_blank',
+      themeColor: '#1f2937'
+    };
+  </script>
+  <script src="vendor/docsify.min.js"></script>
+  <script src="vendor/search.min.js"></script>
+  <script src="vendor/prism-bash.min.js"></script>
+  <script src="vendor/prism-json.min.js"></script>
+  <script src="vendor/prism-yaml.min.js"></script>
+  <script src="vendor/prism-typescript.min.js"></script>
+  <script src="vendor/prism-solidity.min.js"></script>
+</body>
+</html>
