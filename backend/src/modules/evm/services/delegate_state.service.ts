@@ -1,33 +1,30 @@
 import { Injectable } from '@nestjs/common';
-import { Interface } from 'ethers';
 import { EvmChain } from '@getomnichain/omnichain';
 
-import { PlutonException } from '../../../common/errors';
-import { ErrorCodes } from '../../../common/errors/codes';
-import { ChainConfigService } from '../../../core/chain_config/chain_config.service';
 import { RpcService } from '../../../core/rpc/rpc.service';
 
-// Pure ABI codec (calldata encode / result decode is computation, not a chain
-// interaction — the RPC call itself goes through the omnichain EvmChain).
-const DELEGATE_NONCE_IFACE = new Interface(['function nonce() view returns (uint256)']);
+// `GaslessDelegate.nonce` is storage slot 2 of the delegated EOA (see
+// contract/test: test_nonceStorageSlotIsPinned). Read the slot rather than
+// calling `nonce()` through whatever code the EOA currently carries: the batch
+// nonce lives in the EOA's storage and survives re-delegation, so a user moving
+// from an earlier delegate address to the current one keeps their nonce. Calling
+// `nonce()` — or assuming 0 when the EOA points elsewhere — signs a batch the
+// contract rejects with InvalidNonce.
+const NONCE_STORAGE_SLOT = 2n;
 
 @Injectable()
 export class DelegateStateService {
-  constructor(
-    private readonly chainConfig: ChainConfigService,
-    private readonly rpc: RpcService,
-  ) {}
+  constructor(private readonly rpc: RpcService) {}
 
   /**
    * Queries every configured RPC and returns the highest reported nonce.
    * Public RPC pools (publicnode, etc.) load-balance across nodes that may lag
    * by a block or two; taking the max gives the most up-to-date safe view —
-   * the chain's nonce is monotonic, so the max is never higher than truth.
+   * the nonce is monotonic, so the max is never higher than truth.
    */
   async readNonce(chainId: number, userAddress: string): Promise<bigint> {
-    const expectedDelegate = this.chainConfig.requireDelegateAddress(chainId);
     const chains = this.rpc.evmChainsFor(chainId);
-    const results = await Promise.allSettled(chains.map((chain) => this.readNonceFrom(chain, userAddress, expectedDelegate)));
+    const results = await Promise.allSettled(chains.map((chain) => this.readSlot(chain, userAddress)));
     let max = 0n;
     let anySucceeded = false;
     for (const r of results) {
@@ -38,41 +35,13 @@ export class DelegateStateService {
     }
     if (anySucceeded) return max;
 
-    // Every endpoint failed: fall back through the seam's error handling so a
-    // genuine "delegated but nonce() reverted" surfaces as a domain error.
-    return this.rpc.withChain(chainId, async (chain) => {
-      const delegation = await chain.getDelegation(userAddress);
-      if (!isDelegatedToUs(delegation, expectedDelegate)) return 0n;
-      try {
-        return await this.callNonce(chain, userAddress);
-      } catch (err) {
-        throw PlutonException(
-          {
-            code: ErrorCodes.CHAIN_RPC_UNAVAILABLE,
-            httpCode: 502,
-            message: `GaslessDelegate nonce read failed for ${userAddress} on chain ${chainId}. Address is delegated to our contract but nonce() call reverted — likely a transient RPC issue.`,
-            service: 'DelegateState',
-          },
-          err,
-        );
-      }
-    });
+    // Every endpoint failed: go through the seam so the exhausted-fallback
+    // surfaces as the typed CHAIN_RPC_UNAVAILABLE error.
+    return this.rpc.withChain(chainId, (chain) => this.readSlot(chain, userAddress));
   }
 
-  private async readNonceFrom(chain: EvmChain, userAddress: string, expectedDelegate: string): Promise<bigint> {
-    const delegation = await chain.getDelegation(userAddress);
-    if (!isDelegatedToUs(delegation, expectedDelegate)) return 0n;
-    return this.callNonce(chain, userAddress);
+  private async readSlot(chain: EvmChain, userAddress: string): Promise<bigint> {
+    const raw = await chain.getProvider().getStorage(userAddress, NONCE_STORAGE_SLOT);
+    return BigInt(raw);
   }
-
-  private async callNonce(chain: EvmChain, userAddress: string): Promise<bigint> {
-    const { result } = await chain.call({ to: userAddress, data: DELEGATE_NONCE_IFACE.encodeFunctionData('nonce', []) });
-    const [nonce] = DELEGATE_NONCE_IFACE.decodeFunctionResult('nonce', result ?? '0x');
-    return BigInt(nonce);
-  }
-}
-
-function isDelegatedToUs(delegation: { delegate: string } | null, expectedDelegate: string): boolean {
-  if (!delegation) return false;
-  return delegation.delegate.toLowerCase() === expectedDelegate.toLowerCase();
 }
