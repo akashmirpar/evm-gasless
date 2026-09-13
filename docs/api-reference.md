@@ -2,7 +2,7 @@
 
 Base URL: whatever your backend deployment exposes. Default in development: `http://localhost:3578`. The OpenAPI/Swagger view is at `/swagger`.
 
-This doc covers the **EVM** endpoints (`/gasless/transactions/*`). For Solana support (`/gasless/solana/transactions/*`), see [solana-architecture.md](solana-architecture.md) — the shape is different enough that polymorphism would have been more confusing than helpful.
+This doc covers every endpoint under `/gasless/transactions/*`.
 
 ## Response envelope
 

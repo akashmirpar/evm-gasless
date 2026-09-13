@@ -1,7 +1,7 @@
 # Secrets & Configuration Convention
 
-**Status**: Standard for all Node.js backends under `pluton-bridge/*`. Introduced by RIN-120.
-**Scope**: `rango-intents` (this service), `depositron`, `clydner`, and every new Node.js backend added to the org.
+**Status**: The configuration convention this backend follows.
+**Scope**: `backend/` — config.yaml, the mounted secret file, and deploy-time overrides.
 
 > Adopted into this repo as the canonical reference. This repo's mounted secret path is
 > `/run/secrets/gasless_env` and its explicit override var is `GASLESS_ENV_FILE`.
