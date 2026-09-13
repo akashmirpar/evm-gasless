@@ -27,7 +27,7 @@ function parseProfitConfig(raw: string | undefined): Map<string, BigNumber> {
 }
 
 /**
- * Centralizes fee sizing so EVM and Solana estimators share one policy:
+ * Centralizes fee sizing so every estimator shares one policy:
  *   - `bps` mode (default): keep the existing markup-then-convert path (this
  *     service returns null so the estimator's own logic runs unchanged).
  *   - `fixed` mode: price the simulated network cost into the settlement token

@@ -10,7 +10,7 @@ function hostFor(): { host: ArgumentsHost; sent: { status?: number; body?: any }
     status(code: number) { sent.status = code; return this; },
     json(body: unknown) { sent.body = body; return this; },
   };
-  const req = { headers: {}, method: 'POST', url: '/gasless/solana/transactions' };
+  const req = { headers: {}, method: 'POST', url: '/gasless/transactions' };
   const host = { switchToHttp: () => ({ getResponse: () => res, getRequest: () => req }) } as unknown as ArgumentsHost;
   return { host, sent };
 }

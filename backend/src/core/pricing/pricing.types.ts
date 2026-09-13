@@ -20,9 +20,8 @@ export const NATIVE_PRICE_KEY = 'NATIVE';
 /**
  * Blob key for a token. Native asset (address null/empty) keys on
  * `<chain>:NATIVE`; everything else on `<chain>:<address>`. Chain name is
- * lowercased. EVM hex addresses (0x…) are lowercased so checksummed vs.
- * non-checksummed match; Solana base58 mints are case-sensitive and MUST be
- * preserved (lowercasing could collide two distinct mints).
+ * lowercased. Hex addresses (0x…) are lowercased so checksummed vs.
+ * non-checksummed match.
  */
 export function priceKey(chainName: string, address: string | null | undefined): string {
   const chain = chainName.trim().toLowerCase();

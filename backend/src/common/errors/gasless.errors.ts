@@ -62,19 +62,6 @@ export const GaslessErrors = {
       'or the quoted fee has drifted upward (less common). Re-quote via /estimate and try again.',
     service: 'Gasless',
   },
-  TxTooLarge: {
-    code: ErrorCodes.GASLESS_TX_TOO_LARGE,
-    httpCode: 422,
-    message:
-      'Transaction exceeds the chain-imposed wire size limit (Solana 1232 bytes). ' +
-      'Options that actually help: ' +
-      '(a) pay the fee in native SOL — the fee prelude collapses to one SystemProgram.transfer (~96 bytes saved vs direct-SPL); ' +
-      '(b) ensure the operator treasury ATA for the fee mint already exists on-chain so the prelude skips CreateAssociatedTokenAccount (~80 bytes + 1 instruction saved); ' +
-      '(c) include addressLookupTables that cover the common static accounts (system program, token program, token-2022, ATA program, fee mint, treasury); ' +
-      '(d) split the user intent into smaller transactions. ' +
-      'Switching between directly-accepted SPL fee tokens (e.g. USDC ↔ xTSLA) does NOT change the size — the prelude shape is identical.',
-    service: 'Gasless',
-  },
   PriceUnavailable: {
     code: ErrorCodes.GASLESS_PRICE_UNAVAILABLE,
     httpCode: 503,

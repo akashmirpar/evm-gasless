@@ -9,7 +9,7 @@ import { assertRequiredSecrets } from './required_secrets';
 /**
  * Boots the config loader from a throwaway secret file, then runs
  * assertRequiredSecrets as production. Covers the gap the reviewer flagged: a
- * raw EVM key with no Solana seed must fail fast here, not crash later in DI.
+ * missing operator seed must fail fast here, not crash later in DI.
  */
 function withSecrets(lines: string[], fn: () => void): void {
   const dir = mkdtempSync(join(tmpdir(), 'gasless-reqsec-'));
@@ -35,7 +35,6 @@ function withSecrets(lines: string[], fn: () => void): void {
 const REQUIRED = [
   'DATABASE_POSTGRES_PASSWORD=pw',
   'GASLESS_TREASURY_ADDRESS=0xabc',
-  'GASLESS_SOLANA_TREASURY_ADDRESS=SoLtreasury',
   'ANKR_API_KEY=ankrkey',
 ];
 
@@ -46,26 +45,20 @@ describe('assertRequiredSecrets (production)', () => {
     });
   });
 
-  it('passes with a unified OPERATOR_MNEMONIC (covers both EVM and Solana)', () => {
+  it('passes with an OPERATOR_MNEMONIC', () => {
     withSecrets([...REQUIRED, 'OPERATOR_MNEMONIC=seed words here'], () => {
       expect(() => assertRequiredSecrets('production')).not.toThrow();
     });
   });
 
-  it('throws for a raw EVM key with NO Solana seed (the reviewer gap)', () => {
+  it('passes for a raw OPERATOR_PRIVATE_KEY', () => {
     withSecrets([...REQUIRED, 'OPERATOR_PRIVATE_KEY=0xdead'], () => {
-      expect(() => assertRequiredSecrets('production')).toThrow(/Solana operator seed/);
-    });
-  });
-
-  it('passes for a raw EVM key plus a raw Solana key', () => {
-    withSecrets([...REQUIRED, 'OPERATOR_PRIVATE_KEY=0xdead', 'SOLANA_OPERATOR_PRIVATE_KEY=base58'], () => {
       expect(() => assertRequiredSecrets('production')).not.toThrow();
     });
   });
 
-  it('throws for a Solana-only seed with no EVM seed', () => {
-    withSecrets([...REQUIRED, 'SOLANA_OPERATOR_MNEMONIC=seed'], () => {
+  it('throws when no operator seed is set', () => {
+    withSecrets([...REQUIRED], () => {
       expect(() => assertRequiredSecrets('production')).toThrow(/EVM operator seed/);
     });
   });

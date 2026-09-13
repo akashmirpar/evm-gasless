@@ -8,13 +8,12 @@ import { NATIVE_TOKEN_SENTINEL, isNativeSentinel } from './native_token';
 export { NATIVE_TOKEN_SENTINEL, isNativeSentinel };
 
 const EVM_ADDRESS_RE = /^0x[0-9a-fA-F]{40}$/;
-const BASE58_ADDRESS_RE = /^[1-9A-HJ-NP-Za-km-z]{32,44}$/;
 
-/** Family-agnostic well-formedness (EVM 20-byte hex or base58 pubkey). Used only
- * as the floor when the chain family can't be resolved (unsupported chainId), so
- * an unroutable id defers to the service without disabling address validation. */
+/** Well-formedness floor (20-byte hex) used when the chain can't be resolved
+ * (unsupported chainId), so an unroutable id defers to the service without
+ * disabling address validation. */
 function isWellFormedAddress(value: string): boolean {
-  return EVM_ADDRESS_RE.test(value) || BASE58_ADDRESS_RE.test(value);
+  return EVM_ADDRESS_RE.test(value);
 }
 
 /**
@@ -45,7 +44,7 @@ function IsAddress(chainIdProperty: string, options?: ValidationOptions) {
             // A retired/unsupported chainId (e.g. -100) must surface as the
             // service's CHAIN_NOT_SUPPORTED, not a misleading "invalid address".
             // But we must NOT turn the field into a validation off-switch: still
-            // require the value to be a well-formed address (EVM or base58) so a
+            // require the value to be a well-formed address so a
             // malformed `to`/address can't ride through on an unroutable chainId.
             if (isChainError(err, ChainErrorKinds.ChainNotSupported)) return isWellFormedAddress(value);
             return false;
@@ -62,8 +61,8 @@ function IsAddress(chainIdProperty: string, options?: ValidationOptions) {
 /**
  * Validates + canonicalizes an address field against a sibling chainId property.
  * Native sentinel (any casing) → canonical lowercase sentinel; otherwise the
- * package's per-family canonicalization (EVM checksum-lowercased, Solana base58
- * as-is). A retired/unknown chainId is left for the service to reject.
+ * package's canonicalization (checksum-lowercased). A retired/unknown chainId
+ * is left for the service to reject.
  */
 export function AddressField(chainIdProperty: string): PropertyDecorator {
   const transform = Transform(({ obj, value }) => {

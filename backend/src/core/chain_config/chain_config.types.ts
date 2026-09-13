@@ -29,7 +29,7 @@ export interface ChainRegistryShape {
     displayName: string;
     nativeSymbol: string;
     nativeDecimals: number;
-    networkType?: 'EVM' | 'SOLANA';
+    networkType?: 'EVM';
     rangoChainName: string;
     rpcUrls: string[];
     acceptedFeeTokens?: string[];

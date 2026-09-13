@@ -15,7 +15,7 @@ concurrency:
 
 env:
   REGISTRY: ghcr.io
-  # ghcr paths must be lowercase; repository_owner (pluton-bridge) already is.
+  # ghcr paths must be lowercase; repository_owner already is.
   IMAGE_NAME: ${{ github.repository_owner }}/gasless
 
 jobs:

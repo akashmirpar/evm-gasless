@@ -71,7 +71,7 @@ chains_yaml_json="$(cd "$backend_dir" && node -e '
 const { load } = require("js-yaml");
 const fs = require("fs");
 const cfg = load(fs.readFileSync(process.argv[1], "utf8")) || {};
-const chains = (cfg.chains || []).filter((c) => c.networkType !== "SOLANA").map((c) => ({
+const chains = (cfg.chains || []).map((c) => ({
   name: c.name,
   chainId: c.chainId,
   rpcUrls: (c.rpcUrls || []).map((u) => {

@@ -47,7 +47,7 @@ export class EvmExecutorService implements OnModuleInit {
     // rather than per prepare() call.
     if (this.cachedOperator) return this.cachedOperator;
     // Preferred: one BIP-39 mnemonic drives both chains (EVM m/44'/60'/0'/0/{index},
-    // Solana m/44'/501'/{index}'/0'). Raw OPERATOR_PRIVATE_KEY kept as a fallback.
+    // Raw OPERATOR_PRIVATE_KEY kept as a fallback.
     // Declared-but-unset YAML keys resolve to '' (not undefined), so test
     // truthiness after trim rather than nullish-coalescing.
     const mnemonic = (this.config.get<string>('OPERATOR_MNEMONIC') ?? '').trim();

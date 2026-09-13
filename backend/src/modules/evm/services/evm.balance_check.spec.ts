@@ -6,7 +6,7 @@ import { NATIVE_TOKEN_SENTINEL } from '../../../core/chain_config/chain_config.s
 type BalanceMap = { native: bigint; erc20: bigint };
 
 function makeService(balances: BalanceMap): EvmService {
-  // Fake omnichain EvmChain: getBalance(owner) → native lamports/wei;
+  // Fake omnichain EvmChain: getBalance(owner) → native wei;
   // getBalance(owner, tokenId) → ERC-20 balance.
   const chain = {
     getBalance: async (_owner: string, tokenId?: string) => (tokenId ? balances.erc20 : balances.native),
