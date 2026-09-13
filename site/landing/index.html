@@ -1,0 +1,196 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>evm-gasless — transactions without gas on any EIP-7702 chain</title>
+<meta name="description" content="A user holding only an ERC-20 signs once. An operator pays the gas, runs the user's intent, and is paid a small fee in the token the user already holds. Live on BSC, Base and Arbitrum.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<header class="masthead">
+  <a class="wordmark" href="/">evm-gasless</a>
+  <nav>
+    <a href="https://gasless-doc.paytopedia.top">Documentation</a>
+    <a href="https://gasless-api.paytopedia.top/swagger">API</a>
+    <a href="https://github.com/akashmirpar/evm-gasless">Source</a>
+  </nav>
+</header>
+
+<main>
+
+<section class="hero">
+  <p class="eyebrow">EIP-7702 &middot; BSC, Base, Arbitrum</p>
+  <h1>Transactions without gas.</h1>
+  <p class="lede">A user holding only an ERC-20 signs once. An operator pays the gas, runs the user's intent, and is paid a small fee in the token the user already holds. No native balance, no faucet, no second wallet.</p>
+  <p class="actions">
+    <a class="button" href="https://gasless-doc.paytopedia.top/#/integration-guide">Read the integration guide</a>
+    <a class="textlink" href="https://gasless-api.paytopedia.top/swagger">Open the API reference</a>
+  </p>
+</section>
+
+<section class="proof">
+  <h2>One transaction, as it happened</h2>
+  <p class="section-note">Arbitrum One, 13 September 2026. A wallet that has never held ETH moved USDT and paid its fee in USDT.</p>
+  <dl class="facts">
+    <div><dt>Transaction</dt><dd><a href="https://arbiscan.io/tx/0x05a1973c7154f26659a0489532a27a21fae7ed31817f7a14f5e5dbf4cab610a6"><code>0x05a1973c…cab610a6</code></a></dd></div>
+    <div><dt>User's ETH balance, before and after</dt><dd>0</dd></div>
+    <div><dt>Gas, paid by the operator</dt><dd>0.0000016 ETH</dd></div>
+    <div><dt>Fee, paid by the user in USDT</dt><dd>0.0139 USDT</dd></div>
+    <div><dt>Delegate contract</dt><dd><code>0x2e80ca7db998b5e77B7714C5Ca71FEC26699b8fe</code></dd></div>
+  </dl>
+</section>
+
+<section class="how">
+  <h2>How it works</h2>
+  <ol class="steps">
+    <li>
+      <h3>The user delegates their address</h3>
+      <p>An EIP-7702 authorization points the user's own address at the <code>GaslessDelegate</code> contract. Their balances and history stay where they are; the address gains the contract's execution logic.</p>
+    </li>
+    <li>
+      <h3>They sign one EIP-712 batch</h3>
+      <p>The batch names a fee transfer to the operator's treasury, then the user's own operations. Every recipient, amount and byte of calldata is under the signature; nothing can be reordered or altered.</p>
+    </li>
+    <li>
+      <h3>The operator broadcasts and pays</h3>
+      <p>The operator submits the type-4 transaction and covers the gas. The fee leg must succeed. The user's intent runs in an isolated self-call: if it reverts, the fee still settles and the nonce still advances.</p>
+    </li>
+    <li>
+      <h3>Any ERC-20 can be the fee token</h3>
+      <p>If the user's token is not one the operator accepts directly, the fee leg becomes an approve and an on-chain swap into one that is. Same transaction, same signature.</p>
+    </li>
+  </ol>
+</section>
+
+<section class="batch">
+  <h2>Two zones, one signature</h2>
+  <p class="section-note">The structure of a signed batch. The boundary between the zones is itself part of what the user signs.</p>
+  <figure>
+    <svg viewBox="0 0 760 150" role="img" aria-labelledby="batch-title" xmlns="http://www.w3.org/2000/svg">
+      <title id="batch-title">A batch: a must-succeed zone containing the fee transfer, followed by an atomic group containing the user's operations.</title>
+      <g font-family="IBM Plex Mono, ui-monospace, monospace" font-size="12.5" fill="currentColor">
+        <!-- must-succeed zone -->
+        <rect x="1" y="34" width="298" height="60" fill="none" stroke="currentColor" stroke-width="1"/>
+        <rect x="14" y="47" width="130" height="34" fill="none" stroke="currentColor" stroke-width="1"/>
+        <text x="79" y="68" text-anchor="middle">fee → treasury</text>
+        <rect x="156" y="47" width="130" height="34" fill="none" stroke="currentColor" stroke-width="1" stroke-dasharray="3 3"/>
+        <text x="221" y="68" text-anchor="middle">approve + swap</text>
+        <text x="1" y="18" font-family="IBM Plex Sans, system-ui, sans-serif" font-size="11.5" letter-spacing="0.08em">MUST SUCCEED</text>
+        <text x="1" y="122" font-family="IBM Plex Sans, system-ui, sans-serif" font-size="12" opacity="0.65">A revert here reverts the whole transaction.</text>
+
+        <!-- boundary -->
+        <line x1="329" y1="26" x2="329" y2="104" stroke="currentColor" stroke-width="1"/>
+        <text x="318" y="18" text-anchor="end" font-family="IBM Plex Sans, system-ui, sans-serif" font-size="11.5" letter-spacing="0.08em">SIGNED BOUNDARY</text>
+
+        <!-- atomic group -->
+        <rect x="359" y="34" width="400" height="60" fill="none" stroke="currentColor" stroke-width="1"/>
+        <rect x="372" y="47" width="110" height="34" fill="none" stroke="currentColor" stroke-width="1"/>
+        <text x="427" y="68" text-anchor="middle">user op 1</text>
+        <rect x="494" y="47" width="110" height="34" fill="none" stroke="currentColor" stroke-width="1"/>
+        <text x="549" y="68" text-anchor="middle">user op 2</text>
+        <text x="646" y="68" text-anchor="middle" font-family="IBM Plex Sans, system-ui, sans-serif" font-size="13">…</text>
+        <rect x="681" y="47" width="65" height="34" fill="none" stroke="currentColor" stroke-width="1"/>
+        <text x="713" y="68" text-anchor="middle">op n</text>
+        <text x="359" y="18" font-family="IBM Plex Sans, system-ui, sans-serif" font-size="11.5" letter-spacing="0.08em">ATOMIC GROUP</text>
+        <text x="359" y="122" font-family="IBM Plex Sans, system-ui, sans-serif" font-size="12" opacity="0.65">Isolated in a self-call. A revert unwinds only this group.</text>
+      </g>
+    </svg>
+  </figure>
+</section>
+
+<section class="properties">
+  <h2>What the relayer guarantees</h2>
+  <div class="grid">
+    <div>
+      <h3>One address on every chain</h3>
+      <p>The delegate is deployed with CREATE2 from a frozen salt and a pinned toolchain, so it sits at the same address on every chain. Integrators reference one value; the deploy script refuses to run if the compiled bytecode would move it.</p>
+    </div>
+    <div>
+      <h3>Signed once, persisted, then broadcast</h3>
+      <p>The signed transaction is stored before it is sent. A retry re-sends the same bytes; it never re-signs with a fresh nonce, so a transaction with no receipt cannot become two.</p>
+    </div>
+    <div>
+      <h3>Bounded retries</h3>
+      <p>A request that keeps failing backs off from 30 seconds to 5 minutes and then terminates. Nothing spins at cron cadence against an RPC.</p>
+    </div>
+    <div>
+      <h3>No-loss ceiling</h3>
+      <p>A quote is refused when the fee could not cover the network cost at the ceiling gas price. The operator cannot be made to settle at a loss when priority fees spike.</p>
+    </div>
+  </div>
+</section>
+
+<section class="integrate">
+  <h2>Integrating</h2>
+  <p class="section-note">Four endpoints under <code>/gasless/transactions</code>. Every route takes an integrator key on the <code>x-api-key</code> header.</p>
+  <table class="endpoints">
+    <tbody>
+      <tr><td><code>POST&nbsp;…/estimate</code></td><td>Fee quote in the user's chosen token.</td></tr>
+      <tr><td><code>POST&nbsp;…</code></td><td>Build the batch: EIP-712 typed data to sign, plus a <code>requestId</code>.</td></tr>
+      <tr><td><code>POST&nbsp;…/:requestId/submit</code></td><td>The user's signature and EIP-7702 authorization. The relayer broadcasts.</td></tr>
+      <tr><td><code>GET&nbsp;…/:requestId</code></td><td>Status, transaction hash, failure reason.</td></tr>
+    </tbody>
+  </table>
+  <p class="code-caption">A fee estimate for a USDT transfer on Arbitrum, paying the fee in USDT.</p>
+<pre><code><span class="c">// POST https://gasless-api.paytopedia.top/gasless/transactions/estimate</span>
+{
+  "chainId": 42161,
+  "userAddress": "0x3c47832b6C33d0B6Cc42588aF447AebC334CFCec",
+  "feeTokenAddress": "0xFd086bC7CD5C481DCC9C85ebE478A1C0b69FCbb9",
+  "operations": [
+    { "chainId": 42161, "to": "0xFd08…FCbb9", "value": "0", "data": "0xa9059cbb…" }
+  ]
+}
+
+<span class="c">// 201</span>
+{
+  "success": true,
+  "data": {
+    "feeTokenAddress": "0xfd086bc7cd5c481dcc9c85ebe478a1c0b69fcbb9",
+    "feeAmount": "13919",
+    "acceptedFeeToken": true,
+    "swapRoute": null
+  }
+}</code></pre>
+  <p class="actions">
+    <a class="button" href="https://gasless-doc.paytopedia.top/#/integration-guide">Integration guide</a>
+    <a class="textlink" href="https://gasless-doc.paytopedia.top/#/api-reference">Full API reference</a>
+  </p>
+</section>
+
+<section class="integrators">
+  <h2>Integrators</h2>
+  <div class="grid">
+    <div>
+      <h3><a href="https://nestinvest.fi">Nest</a></h3>
+      <p>An investment app — "invest in the assets you believe in, simply and safely" — integrating the relayer so its users can transact without holding gas.</p>
+    </div>
+    <div>
+      <h3><a href="https://rango.exchange">Rango Exchange</a></h3>
+      <p>The cross-chain DEX and bridge aggregator. An integrator, and the routing partner the relayer uses when a user's fee token has to be swapped on-chain.</p>
+    </div>
+  </div>
+</section>
+
+</main>
+
+<footer>
+ <div class="footer-inner">
+  <div>
+    <p class="wordmark">evm-gasless</p>
+    <p class="fine">EIP-7702 gasless relayer. Contract and backend source on <a href="https://github.com/akashmirpar/evm-gasless">GitHub</a>.</p>
+  </div>
+  <div class="fine">
+    <p>Delegate <code>0x2e80ca7db998b5e77B7714C5Ca71FEC26699b8fe</code></p>
+    <p>Live on BSC &middot; Base &middot; Arbitrum One</p>
+  </div>
+ </div>
+</footer>
+
+</body>
+</html>
