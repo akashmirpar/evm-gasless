@@ -1,75 +1,70 @@
-import { AbiCoder } from 'ethers';
+import { toBeHex } from 'ethers';
 
 import { DelegateStateService } from './delegate_state.service';
 
-const OUR_DELEGATE = '0x7AF705BEA2Aa1F1cB4ffB18cbB94B26Bba343a87';
-const coder = AbiCoder.defaultAbiCoder();
+const NONCE_SLOT = 2n;
 
-// Fake omnichain EvmChain: `getDelegation` parses the 7702 designator from a
-// code map; `call` returns the ABI-encoded nonce (or throws to model a revert).
+// Fake omnichain EvmChain: `getProvider().getStorage` serves the EOA's storage,
+// keyed by address → slot → value. Delegation state is deliberately absent —
+// the nonce read must not depend on it.
 class FakeChain {
-  constructor(
-    private codeMap: Record<string, string>,
-    private nonceMap: Record<string, bigint | Error>,
-  ) {}
+  constructor(private storage: Record<string, Record<string, bigint | Error>>) {}
 
-  async getDelegation(addr: string): Promise<{ delegate: string } | null> {
-    const code = (this.codeMap[addr.toLowerCase()] ?? '0x').toLowerCase();
-    if (!code.startsWith('0xef0100') || code.length < 48) return null;
-    return { delegate: '0x' + code.slice(8) };
-  }
-
-  async call({ to }: { to: string; data: string }): Promise<{ result?: string }> {
-    const v = this.nonceMap[to.toLowerCase()];
-    if (v instanceof Error) throw v;
-    return { result: coder.encode(['uint256'], [v ?? 0n]) };
+  getProvider() {
+    return {
+      getStorage: async (addr: string, slot: bigint): Promise<string> => {
+        const v = this.storage[addr.toLowerCase()]?.[slot.toString()];
+        if (v instanceof Error) throw v;
+        return toBeHex(v ?? 0n, 32);
+      },
+    };
   }
 }
 
-function makeService(codeMap: Record<string, string>, nonceMap: Record<string, bigint | Error>): DelegateStateService {
-  const chainConfig = {
-    get: () => ({ rpcUrls: ['https://rpc.a', 'https://rpc.b'] }),
-    requireDelegateAddress: () => OUR_DELEGATE,
-  } as never;
-  const chain = new FakeChain(codeMap, nonceMap);
+function makeService(chains: FakeChain[]): DelegateStateService {
   const rpc = {
-    evmChainsFor: () => [chain, chain] as never,
-    withChain: async (_id: number, fn: (c: unknown) => Promise<bigint>) => fn(chain),
+    evmChainsFor: () => chains as never,
+    withChain: async (_id: number, fn: (c: unknown) => Promise<bigint>) => {
+      for (const c of chains) {
+        try { return await fn(c); } catch { /* try the next endpoint */ }
+      }
+      throw Object.assign(new Error('all rpcs failed'), { errorInfo: { code: 20002 } });
+    },
   } as never;
-  return new DelegateStateService(chainConfig, rpc);
+  return new DelegateStateService(rpc);
 }
 
-describe('DelegateStateService.readNonce — fresh-EOA regression (M7 follow-up)', () => {
-  const USER = '0x886b748C1000000000000000000000000000AAAA';
+const USER = '0x886b748C1000000000000000000000000000AAAA';
+const at = (nonce: bigint | Error) => ({ [USER.toLowerCase()]: { [NONCE_SLOT.toString()]: nonce } });
 
-  it('returns 0n for a fresh EOA (no delegation), does NOT throw', async () => {
-    const svc = makeService({ [USER.toLowerCase()]: '0x' }, {});
-    await expect(svc.readNonce(56, USER)).resolves.toBe(0n);
+describe('DelegateStateService.readNonce', () => {
+  it('returns 0n for a fresh EOA (empty storage)', async () => {
+    await expect(makeService([new FakeChain({})]).readNonce(56, USER)).resolves.toBe(0n);
   });
 
-  it('returns nonce when address is delegated to OUR delegate', async () => {
-    const svc = makeService(
-      { [USER.toLowerCase()]: '0xef0100' + OUR_DELEGATE.slice(2).toLowerCase() },
-      { [USER.toLowerCase()]: 5n },
-    );
-    await expect(svc.readNonce(56, USER)).resolves.toBe(5n);
+  it('returns the nonce held in the EOA storage slot', async () => {
+    await expect(makeService([new FakeChain(at(5n))]).readNonce(56, USER)).resolves.toBe(5n);
   });
 
-  it('returns 0n when address is delegated to a DIFFERENT contract (auth submit will overwrite)', async () => {
-    const svc = makeService(
-      { [USER.toLowerCase()]: '0xef010063c0c19a282a1b52b07dd5a65b58948a07dae32b' },
-      {},
-    );
-    await expect(svc.readNonce(56, USER)).resolves.toBe(0n);
+  // The migration case that produced InvalidNonce on-chain: the EOA is still
+  // delegated to a previous delegate address, but its storage carries the
+  // nonce advanced under that delegate. Re-delegating keeps the storage.
+  it('reads the storage nonce regardless of which delegate the EOA currently points at', async () => {
+    await expect(makeService([new FakeChain(at(1n))]).readNonce(56, USER)).resolves.toBe(1n);
   });
 
-  it('throws typed CHAIN_RPC_UNAVAILABLE when delegated to us but nonce() reverts', async () => {
-    const svc = makeService(
-      { [USER.toLowerCase()]: '0xef0100' + OUR_DELEGATE.slice(2).toLowerCase() },
-      { [USER.toLowerCase()]: new Error('call reverted') },
-    );
-    await expect(svc.readNonce(56, USER)).rejects.toMatchObject({
-      errorInfo: expect.objectContaining({ code: 20002 }),
-    });
+  it('takes the max across RPCs when one lags', async () => {
+    const svc = makeService([new FakeChain(at(3n)), new FakeChain(at(4n))]);
+    await expect(svc.readNonce(56, USER)).resolves.toBe(4n);
+  });
+
+  it('a single failing RPC does not mask the others', async () => {
+    const svc = makeService([new FakeChain(at(new Error('timeout'))), new FakeChain(at(7n))]);
+    await expect(svc.readNonce(56, USER)).resolves.toBe(7n);
+  });
+
+  it('surfaces CHAIN_RPC_UNAVAILABLE when every RPC fails', async () => {
+    const svc = makeService([new FakeChain(at(new Error('down'))), new FakeChain(at(new Error('down')))]);
+    await expect(svc.readNonce(56, USER)).rejects.toMatchObject({ errorInfo: { code: 20002 } });
   });
 });

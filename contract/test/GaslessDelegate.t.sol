@@ -312,6 +312,22 @@ contract GaslessDelegateTest is Test {
     }
 
     // ------------------------------------------------------------
+    // Storage layout the backend depends on
+    // ------------------------------------------------------------
+
+    // backend/src/modules/evm/services/delegate_state.service.ts reads the batch
+    // nonce straight from slot 2 of the delegated EOA, so it survives moving the
+    // EOA between delegate addresses. Moving `nonce` breaks that silently.
+    function test_nonceStorageSlotIsPinned() public {
+        GaslessDelegate.Operation[] memory ops = new GaslessDelegate.Operation[](1);
+        ops[0] = _treasuryOp(0.1 ether);
+        _delegated().executeBatch(ops, 1, 0, _sign(ops, 1, 0));
+
+        assertEq(uint256(vm.load(user, bytes32(uint256(2)))), 1, "nonce is not at slot 2");
+        assertEq(_delegated().nonce(), 1);
+    }
+
+    // ------------------------------------------------------------
     // Domain isolation
     // ------------------------------------------------------------
 
