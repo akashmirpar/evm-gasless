@@ -2,6 +2,7 @@
 # Assemble the public sites from this repository's sources.
 #   docs    -> /var/www/gasless-doc   (site/docs shell + docs/ + contract/docs/)
 #   landing -> /var/www/gasless       (site/landing)
+# site/assets (logo, favicon, cover) is copied into both.
 # Vendor assets for the docs come from a docsify install passed as $1.
 set -euo pipefail
 here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -46,19 +47,26 @@ fi
 rm -rf "$landing_out"; mkdir -p "$landing_out"
 cp -r "$here/landing/." "$landing_out/"
 
-# ---- cache-bust: the CDN caches .js/.css by path, so give every asset a
-# content-hashed filename and rewrite the references in index.html.
+# ---- shared assets
+cp "$here/assets/"* "$docs_out/"
+cp "$here/assets/"* "$landing_out/"
+
+# ---- cache-bust: the CDN caches static files by path, so give every asset
+# referenced from index.html a content-hashed filename and rewrite the reference.
+# cover.png is referenced by absolute URL for link previews and keeps its name.
 python3 - "$docs_out" "$landing_out" <<'PYEOF'
 import hashlib, pathlib, re, sys
 for root in map(pathlib.Path, sys.argv[1:]):
     index = root / "index.html"; html = index.read_text()
-    for m in sorted(set(re.findall(r'(?:href|src)="((?:vendor/)?[\w.-]+\.(?:js|css))"', html))):
+    for m in sorted(set(re.findall(r'''["']((?:vendor/)?[\w.-]+\.(?:js|css|png))["']''', html))):
         f = root / m
         if not f.exists(): continue
         h = hashlib.sha256(f.read_bytes()).hexdigest()[:10]
         new = f.with_name(f"{f.stem}.{h}{f.suffix}")
         f.rename(new)
-        html = html.replace(f'"{m}"', f'"{m[:-len(f.name)]}{new.name}"')
+        hashed = f"{m[:-len(f.name)]}{new.name}"
+        for q in ('"', "'"):
+            html = html.replace(f"{q}{m}{q}", f"{q}{hashed}{q}")
     index.write_text(html)
 PYEOF
 
